@@ -1,27 +1,48 @@
 {
-  "name": "jira-lite",
+  "name": "jiji",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "clean": "rm -rf .next",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force",
+    "db:studio": "prisma studio",
+    "db:psql": "podman exec -it jira-postgres psql -U jira -d jira"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "dotenv": "^18.0.4",
+    "next": "15.5.26",
+    "next-auth": "^5.0.0-beta.32",
+    "pg": "^8.23.0",
+    "prisma": "^7.10.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.26"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.26",
-    "@eslint/eslintrc": "^3"
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
   }
 }
