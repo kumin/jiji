@@ -19,11 +19,11 @@ A green run must show the signed-in tests as passing, not skipped. Postgres runs
 - API tests use the `createClient()` and `devLogin()` helpers. Every test row is cleaned up in `after()`. Test dashboards are named with the `e2e-` prefix so cleanup can find them.
 
 ## Task 0: Baseline
-- [ ] Commit or stash the uncommitted work on `feat/issue-tracker` (the menu-bar change, `.claude/launch.json`, the spec, and the deleted `.agents/skills` files). Ask the user which.
-- [ ] `git switch -c feat/dashboards`
-- [ ] Start the dev server with `AUTH_DEV_LOGIN=true`, then run `npm run check`. Record the pass, fail and skip counts in this file under "Baseline result".
+- [x] Commit or stash the uncommitted work on `feat/issue-tracker` (the menu-bar change, `.claude/launch.json`, the spec, and the deleted `.agents/skills` files). Ask the user which.
+- [x] `git switch -c feat/dashboards`
+- [x] Start the dev server with `AUTH_DEV_LOGIN=true`, then run `npm run check`. Record the pass, fail and skip counts in this file under "Baseline result".
 
-Baseline result: _(fill in)_
+Baseline result: 2026-11-20, `npm run check` with the dev server on (`AUTH_DEV_LOGIN=true`): typecheck and lint clean; 84 tests, 84 pass, 0 fail, 0 skipped.
 
 ## Task 1: Dashboard validation schemas
 - Files: `src/lib/validation.ts`, `tests/validation.test.ts`
