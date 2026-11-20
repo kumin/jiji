@@ -573,14 +573,119 @@ describe("dashboards", () => {
     );
   });
 
+  async function createDashboard(name = `${tag()} dash`) {
+    const response = await client.request("/api/dashboards", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    assert.equal(response.status, 201);
+    return ((await response.json()) as DashboardBody).dashboard;
+  }
+
+  async function createIssueIn(dashboardId: string) {
+    const response = await client.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ dashboardId, title: "dashboard member" }),
+    });
+    assert.equal(response.status, 201);
+    const { issue } = (await response.json()) as { issue: { id: string } };
+    created.push(issue.id);
+    return issue;
+  }
+
+  it("renames a dashboard and validates the patch", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboard = await createDashboard();
+    const newName = `${tag()} Site`;
+
+    const patch = await client.request(`/api/dashboards/${dashboard.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: newName }),
+    });
+    assert.equal(patch.status, 200);
+    assert.equal(((await patch.json()) as DashboardBody).dashboard.name, newName);
+
+    const read = await client.request(`/api/dashboards/${dashboard.id}`);
+    assert.equal(read.status, 200);
+    assert.equal(((await read.json()) as DashboardBody).dashboard.name, newName);
+
+    const empty = await client.request(`/api/dashboards/${dashboard.id}`, {
+      method: "PATCH",
+      body: "{}",
+    });
+    assert.equal(empty.status, 400);
+
+    const unknown = await client.request("/api/dashboards/does-not-exist", {
+      method: "PATCH",
+      body: JSON.stringify({ name: `${tag()} x` }),
+    });
+    assert.equal(unknown.status, 404);
+    assert.equal((await client.request("/api/dashboards/does-not-exist")).status, 404);
+  });
+
+  it("409s a rename onto another dashboard's name but allows a case-only rename", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const a = await createDashboard();
+    const b = await createDashboard();
+
+    const clash = await client.request(`/api/dashboards/${b.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: a.name.toUpperCase() }),
+    });
+    assert.equal(clash.status, 409);
+
+    const recase = await client.request(`/api/dashboards/${b.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: b.name.toUpperCase() }),
+    });
+    assert.equal(recase.status, 200);
+  });
+
+  it("deletes an empty dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboard = await createDashboard();
+    const remove = await client.request(`/api/dashboards/${dashboard.id}`, { method: "DELETE" });
+    assert.equal(remove.status, 204);
+    assert.equal((await client.request(`/api/dashboards/${dashboard.id}`)).status, 404);
+  });
+
+  it("refuses to delete a dashboard that still has issues", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboard = await createDashboard();
+    const issues = [await createIssueIn(dashboard.id), await createIssueIn(dashboard.id)];
+
+    const remove = await client.request(`/api/dashboards/${dashboard.id}`, { method: "DELETE" });
+    assert.equal(remove.status, 409);
+    assert.deepEqual(await remove.json(), { error: "Dashboard still has issues", issueCount: 2 });
+
+    const read = await client.request(`/api/dashboards/${dashboard.id}`);
+    assert.equal(read.status, 200);
+    assert.equal(((await read.json()) as DashboardBody).dashboard.issueCount, 2);
+    for (const issue of issues) {
+      assert.equal((await client.request(`/api/issues/${issue.id}`)).status, 200);
+    }
+  });
+
+  it("404s when deleting an unknown dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await client.request("/api/dashboards/does-not-exist", { method: "DELETE" });
+    assert.equal(response.status, 404);
+  });
+
   it("refuses anonymous writes with 401", async (t) => {
     if (!reachable) return t.skip("no server");
-    const response = await fetch(`${BASE}/api/dashboards`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "anon" }),
-      redirect: "manual",
-    });
-    assert.equal(response.status, 401);
+    for (const [method, path] of [
+      ["POST", "/api/dashboards"],
+      ["PATCH", "/api/dashboards/whatever"],
+      ["DELETE", "/api/dashboards/whatever"],
+    ] as const) {
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: method === "DELETE" ? undefined : JSON.stringify({ name: "anon" }),
+        redirect: "manual",
+      });
+      assert.equal(response.status, 401, `${method} ${path}`);
+    }
   });
 });

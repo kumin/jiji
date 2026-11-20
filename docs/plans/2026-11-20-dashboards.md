@@ -106,7 +106,8 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - DELETE: check auth, then existence → 404, then `prisma.issue.count({where:{dashboardId:id}})` > 0 → 409 with `issueCount`. Otherwise delete, and catch P2003 → recount and return 409. That covers a concurrent issue create.
 - Verify: `npm test` → green.
 - Covers: AC 3 (PATCH), 4, 5, 6, 7
-- [ ] Done
+- Note: checked directly that deleting a dashboard that still has issues makes Prisma throw `P2003`, and that `isForeignKeyViolation` recognises it. Nothing was deleted.
+- [x] Done
 
 ## Task 5: Move an issue between dashboards
 - Files: `src/app/api/issues/[id]/route.ts`, `tests/api.test.ts`
