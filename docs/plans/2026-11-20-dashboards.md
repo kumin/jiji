@@ -87,7 +87,10 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - GET: `findMany({ orderBy: { name: "asc" } })`, mapped through `toDashboardDTO`.
 - Verify: `npm test` → the new tests pass.
 - Covers: AC 1, 2, 3 (POST), 7 (POST)
-- [ ] Done
+- Notes:
+  - GET sorts in JS with a case-insensitive `localeCompare` (`sortByName`) instead of `orderBy: { name: "asc" }`, because Postgres collation could put "Zeta" before "alpha". The helper `isForeignKeyViolation` was also added here, ready for Task 4.
+  - Added a test that fires 5 concurrent same-name creates: exactly one 201 and four 409s, which proves the P2002 mapping.
+- [x] Done
 
 ## Task 4: GET, PATCH and DELETE /api/dashboards/{id}
 - Files: `src/app/api/dashboards/[id]/route.ts` (new), `tests/api.test.ts`

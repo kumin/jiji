@@ -476,3 +476,111 @@ describe("pages render", () => {
     assert.match(await response.text(), new RegExp(`JIJI-${issue.number}`));
   });
 });
+
+describe("dashboards", () => {
+  const client = createClient();
+  /** Unique per run so names never collide with real dashboards or earlier runs. */
+  const tag = () => `${TEST_DASHBOARD_PREFIX}${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+
+  type DashboardBody = {
+    dashboard: { id: string; name: string; description: string | null; issueCount: number };
+  };
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await client.devLogin("E2E Dashboards", `${unique()}@example.com`);
+  });
+
+  it("creates a dashboard and lists it, sorted by name", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const name = `${tag()} Website`;
+    const response = await client.request("/api/dashboards", {
+      method: "POST",
+      body: JSON.stringify({ name, description: "Marketing site" }),
+    });
+    assert.equal(response.status, 201);
+    const { dashboard } = (await response.json()) as DashboardBody;
+    assert.equal(dashboard.name, name);
+    assert.equal(dashboard.description, "Marketing site");
+    assert.equal(dashboard.issueCount, 0);
+
+    const list = await client.request("/api/dashboards");
+    assert.equal(list.status, 200);
+    const { dashboards } = (await list.json()) as { dashboards: { id: string; name: string }[] };
+    assert.ok(dashboards.some((d) => d.id === dashboard.id), "new dashboard is listed");
+    const names = dashboards.map((d) => d.name);
+    assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })));
+  });
+
+  it("rejects invalid input with 400 and stores nothing", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const before = ((await (await client.request("/api/dashboards")).json()) as { dashboards: unknown[] })
+      .dashboards.length;
+    for (const [body, field] of [
+      [{}, "name"],
+      [{ name: "   " }, "name"],
+      [{ name: "a".repeat(81) }, "name"],
+      [{ name: `${tag()} long`, description: "a".repeat(501) }, "description"],
+    ] as const) {
+      const response = await client.request("/api/dashboards", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400, JSON.stringify(body));
+      const json = (await response.json()) as { fields?: Record<string, string> };
+      assert.ok(json.fields?.[field], `expected fields.${field}`);
+    }
+    const after = ((await (await client.request("/api/dashboards")).json()) as { dashboards: unknown[] })
+      .dashboards.length;
+    assert.equal(after, before);
+  });
+
+  it("rejects a duplicate name regardless of case with 409", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const name = `${tag()} Web`;
+    const first = await client.request("/api/dashboards", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    assert.equal(first.status, 201);
+    const second = await client.request("/api/dashboards", {
+      method: "POST",
+      body: JSON.stringify({ name: name.toUpperCase() }),
+    });
+    assert.equal(second.status, 409);
+    const json = (await second.json()) as { error: string; fields?: Record<string, string> };
+    assert.equal(json.error, "Name already in use");
+    assert.ok(json.fields?.name);
+  });
+
+  it("lets exactly one of several concurrent same-name creates win", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const name = `${tag()} Race`;
+    const statuses = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        client
+          .request("/api/dashboards", {
+            method: "POST",
+            body: JSON.stringify({ name: i % 2 ? name.toUpperCase() : name }),
+          })
+          .then((response) => response.status),
+      ),
+    );
+    assert.deepEqual(
+      statuses.toSorted(),
+      [201, 409, 409, 409, 409],
+      `got ${statuses.join(", ")}: a 500 means the unique violation was not mapped`,
+    );
+  });
+
+  it("refuses anonymous writes with 401", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const response = await fetch(`${BASE}/api/dashboards`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "anon" }),
+      redirect: "manual",
+    });
+    assert.equal(response.status, 401);
+  });
+});
