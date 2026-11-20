@@ -30,7 +30,7 @@ export default async function RootLayout({
               </span>
               <span className="text-sm font-semibold tracking-tight text-slate-900">Jiji</span>
             </Link>
-            <NavLinks />
+            {session?.user && <NavLinks />}
             <div className="ml-auto flex items-center gap-2">
               {session?.user ? (
                 <>
