@@ -128,7 +128,8 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
 - Change: add `dashboardId?: string` to `IssueFilters`, `parseIssueFilters` and `buildIssueWhere`. `getStatusCounts(dashboardId?)` adds `where: { dashboardId }` to `groupBy`. The API's inline `groupBy` uses `getStatusCounts(filters.dashboardId)` instead of its own copy.
 - Verify: `npm test` → green.
 - Covers: AC 10, AC 9 (the list assertion from Task 5 can now be added)
-- [ ] Done
+- Note: the list check deferred from Task 5 (the moved issue leaves A's list and appears in B's) was added to the move test.
+- [x] Done
 
 ## Task 7: Scope the list and board pages to a dashboard
 - Files: `src/lib/queries.ts`, `src/components/DashboardSwitcher.tsx` (new), `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/board/page.tsx`, `tests/api.test.ts`

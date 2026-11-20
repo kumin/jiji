@@ -144,3 +144,23 @@ describe("isFiltered", () => {
     assert.equal(isFiltered({ q: "board" }), true);
   });
 });
+
+describe("dashboard scope", () => {
+  it("parses a dashboard id", () => {
+    assert.deepEqual(parseIssueFilters({ dashboardId: "d1" }), { dashboardId: "d1" });
+    assert.deepEqual(parseIssueFilters({ dashboardId: ["d1", "d2"] }), { dashboardId: "d1" });
+    assert.deepEqual(parseIssueFilters({ dashboardId: "" }), {});
+  });
+
+  it("scopes the where clause, alongside other filters and search", () => {
+    assert.deepEqual(buildIssueWhere({ dashboardId: "d1" }), { dashboardId: "d1" });
+    const where = buildIssueWhere({ dashboardId: "d1", status: IssueStatus.TODO, q: "board" });
+    assert.equal(where.dashboardId, "d1");
+    assert.equal(where.status, IssueStatus.TODO);
+    assert.ok(where.OR, "search still applies");
+  });
+
+  it("is a scope, not a filter", () => {
+    assert.equal(isFiltered({ dashboardId: "d1" }), false);
+  });
+});

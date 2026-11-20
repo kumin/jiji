@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 
 import type { Prisma } from "@/generated/prisma/client";
-import { IssueStatus } from "@/generated/prisma/enums";
 
-import { STATUS_ORDER } from "@/lib/issue";
 import { resolveAssignee } from "@/lib/assignee";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
+import { getStatusCounts } from "@/lib/queries";
 import { currentUserId } from "@/lib/require-user";
 import { fieldErrors, issueCreateSchema } from "@/lib/validation";
 
@@ -38,15 +37,10 @@ export async function GET(request: Request) {
     orderBy,
   });
 
-  // Per-status totals across the whole board, so filter chips keep stable
-  // numbers while the other filters are applied.
-  const grouped = await prisma.issue.groupBy({ by: ["status"], _count: { _all: true } });
-  const counts = Object.fromEntries(
-    STATUS_ORDER.map((status) => [
-      status,
-      grouped.find((group) => group.status === status)?._count._all ?? 0,
-    ]),
-  ) as Record<IssueStatus, number>;
+  // Per-status totals across the whole dashboard (or every issue when no
+  // dashboard is given), so filter chips keep stable numbers while the other
+  // filters are applied.
+  const counts = await getStatusCounts(filters.dashboardId);
 
   return NextResponse.json({
     issues: issues.map(toIssueDTO),

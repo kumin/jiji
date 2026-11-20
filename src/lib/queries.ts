@@ -28,8 +28,13 @@ export async function listUsers(): Promise<UserDTO[]> {
   return users.map((user) => toUserDTO(user)!);
 }
 
-export async function getStatusCounts(): Promise<Record<IssueStatus, number>> {
-  const grouped = await prisma.issue.groupBy({ by: ["status"], _count: { _all: true } });
+/** Per-status totals, across one dashboard when given, otherwise across all issues. */
+export async function getStatusCounts(dashboardId?: string): Promise<Record<IssueStatus, number>> {
+  const grouped = await prisma.issue.groupBy({
+    by: ["status"],
+    where: dashboardId ? { dashboardId } : {},
+    _count: { _all: true },
+  });
   return Object.fromEntries(
     STATUS_ORDER.map((status) => [
       status,

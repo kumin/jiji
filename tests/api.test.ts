@@ -693,6 +693,15 @@ describe("dashboards", () => {
     };
     assert.equal(reread.issue.dashboard.id, b.id);
 
+    const listA = (await (await client.request(`/api/issues?dashboardId=${a.id}`)).json()) as {
+      issues: { id: string }[];
+    };
+    assert.ok(!listA.issues.some((i) => i.id === original.id), "no longer listed in the old dashboard");
+    const listB = (await (await client.request(`/api/issues?dashboardId=${b.id}`)).json()) as {
+      issues: { id: string }[];
+    };
+    assert.ok(listB.issues.some((i) => i.id === original.id), "listed in the new dashboard");
+
     const bad = await client.request(`/api/issues/${original.id}`, {
       method: "PATCH",
       body: JSON.stringify({ dashboardId: "nope" }),
@@ -700,6 +709,39 @@ describe("dashboards", () => {
     assert.equal(bad.status, 400);
     const json = (await bad.json()) as { fields?: Record<string, string> };
     assert.ok(json.fields?.dashboardId, "expected fields.dashboardId");
+  });
+
+  it("lists only one dashboard's issues, with counts scoped to it", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const a = await createDashboard();
+    const b = await createDashboard();
+    const todo = await createIssueIn(a.id);
+    const done = await createIssueIn(a.id);
+    const other = await createIssueIn(b.id);
+
+    // Walk `done` through the workflow to DONE.
+    for (const status of ["IN_PROGRESS", "IN_REVIEW", "DONE"]) {
+      const step = await client.request(`/api/issues/${done.id}/transition`, {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      });
+      assert.equal(step.status, 200, status);
+    }
+
+    const response = await client.request(`/api/issues?dashboardId=${a.id}`);
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as {
+      issues: { id: string }[];
+      counts: Record<string, number>;
+      total: number;
+    };
+    assert.deepEqual(body.issues.map((i) => i.id).sort(), [todo.id, done.id].sort());
+    assert.equal(body.total, 2);
+    assert.deepEqual(body.counts, { TODO: 1, IN_PROGRESS: 0, IN_REVIEW: 0, DONE: 1 });
+
+    const all = (await (await client.request("/api/issues")).json()) as { issues: { id: string }[] };
+    const ids = new Set(all.issues.map((i) => i.id));
+    assert.ok(ids.has(todo.id) && ids.has(other.id), "no parameter means every dashboard");
   });
 
   it("404s when deleting an unknown dashboard", async (t) => {
