@@ -160,7 +160,10 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - `NavLinks` adds `{ href: "/dashboards", label: "Dashboards" }`.
 - Verify: `npm test` → green. In the browser, creating, renaming and deleting work; a duplicate name shows an error; delete is disabled on a dashboard that has issues.
 - Covers: AC 13
-- [ ] Done
+- Notes:
+  - The Dashboards nav link doesn't carry `?dashboard=`; only Issues and Board do.
+  - Browser check: created "e2e-ui Website"; creating "E2E-UI WEBSITE" showed "Another dashboard already uses this name"; renamed it to "e2e-ui Site"; deleted it (the confirm dialog was auto-accepted for the test). Jiji's Delete is disabled, with "Move or delete its 14 issues first".
+- [x] Done
 
 ## Task 9: Dashboard select on the issue form
 - Files: `src/components/IssueForm.tsx`, `src/app/issues/new/page.tsx`, `src/components/EditIssueSection.tsx`, `src/app/issues/[id]/page.tsx`

@@ -166,7 +166,7 @@ describe("authentication", () => {
 
   it("redirects anonymous page visits to the login page", async (t) => {
     if (!reachable) return t.skip("no server");
-    for (const path of ["/", "/board", "/issues/new"]) {
+    for (const path of ["/", "/board", "/issues/new", "/dashboards"]) {
       const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
       assert.equal(response.status, 307, path);
       assert.match(response.headers.get("location") ?? "", /\/login/, path);
@@ -770,6 +770,22 @@ describe("dashboards", () => {
       const response = await client.get(`${path}?dashboard=does-not-exist`);
       assert.equal(response.status, 404, path);
     }
+  });
+
+  it("serves the dashboards page with names and issue counts", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboard = await createDashboard();
+    await createIssueIn(dashboard.id);
+    await createIssueIn(dashboard.id);
+
+    const response = await client.get("/dashboards");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes(dashboard.name), "lists the dashboard");
+    // React may split text nodes with <!-- --> comments, so strip them first.
+    const text = html.replace(/<!-- -->/g, "");
+    assert.match(text, /2 issues/, "shows the issue count");
+    assert.match(text, /Move or delete its 2 issues first/, "explains why delete is blocked");
   });
 
   it("404s when deleting an unknown dashboard", async (t) => {
