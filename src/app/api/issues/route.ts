@@ -71,6 +71,17 @@ export async function POST(request: Request) {
     );
   }
 
+  const dashboard = await prisma.dashboard.findUnique({
+    where: { id: parsed.data.dashboardId },
+    select: { id: true },
+  });
+  if (!dashboard) {
+    return NextResponse.json(
+      { error: "Validation failed", fields: { dashboardId: "Dashboard not found" } },
+      { status: 400 },
+    );
+  }
+
   if (parsed.data.assigneeId !== undefined) {
     const assignee = await resolveAssignee(parsed.data.assigneeId);
     if (!assignee.ok) {

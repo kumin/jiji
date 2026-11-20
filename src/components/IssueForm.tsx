@@ -17,11 +17,13 @@ type Props = {
   users: UserDTO[];
   /** Omit to render a create form; pass an issue to render the edit form. */
   issue?: IssueDTO;
+  /** Dashboard a new issue is created in. Ignored when editing. */
+  dashboardId?: string;
 };
 
 type Errors = Record<string, string>;
 
-export function IssueForm({ users, issue }: Props) {
+export function IssueForm({ users, issue, dashboardId }: Props) {
   const router = useRouter();
   const editing = Boolean(issue);
 
@@ -49,6 +51,7 @@ export function IssueForm({ users, issue }: Props) {
       priority,
       assigneeId,
       dueDate,
+      ...(editing ? {} : { dashboardId }),
     };
 
     try {

@@ -26,4 +26,5 @@ export type IssueDTO = {
   updatedAt: string;
   assignee: UserDTO | null;
   reporter: UserDTO | null;
+  dashboard: { id: string; name: string };
 };

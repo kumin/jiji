@@ -64,12 +64,30 @@ model Issue {
   reporterId String?
   reporter   User?   @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: SetNull)
 
+  /// Every issue lives in exactly one dashboard. Restrict: a dashboard that still
+  /// has issues cannot be deleted, even if the API check is bypassed.
+  dashboardId String
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Restrict)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([priority])
   @@index([assigneeId])
+  @@index([dashboardId, status])
+}
+
+/// A space that groups issues, e.g. one per project or team. Names are unique
+/// regardless of case, via the raw `Dashboard_name_lower_key` index in the
+/// dashboards migration (Prisma cannot express an index on lower(name)).
+model Dashboard {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  issues      Issue[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 /// --- Auth.js models ---

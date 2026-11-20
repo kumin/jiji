@@ -14,6 +14,10 @@ const BASE = process.env.JIJI_TEST_BASE_URL ?? "http://localhost:3000";
 const TEST_EMAIL_PREFIX = "e2e-";
 const unique = () => `${TEST_EMAIL_PREFIX}${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
+/** Every issue the suite creates goes into this dashboard (named with the e2e- prefix). */
+let testDashboardId = "";
+const TEST_DASHBOARD_PREFIX = "e2e-";
+
 let reachable = false;
 /** The dev-login provider is deliberately off in a production build, so the
  *  authenticated tests have nothing to sign in with there. */
@@ -34,6 +38,15 @@ before(async () => {
   if (!devLoginAvailable) {
     console.log("  (skipping signed-in tests: the dev-login provider is disabled here)");
   }
+  if (!devLoginAvailable) return;
+
+  // Created here rather than in a second top-level `before`: this must run after
+  // the dev-login probe above has set `devLoginAvailable`.
+  const { prisma } = await import("@/lib/prisma");
+  const dashboard = await prisma.dashboard.create({
+    data: { name: `${TEST_DASHBOARD_PREFIX}${process.pid}-${Date.now()}` },
+  });
+  testDashboardId = dashboard.id;
 });
 
 /**
@@ -108,9 +121,14 @@ after(async () => {
     await client.request(`/api/issues/${id}`, { method: "DELETE" });
   }
 
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.issue.deleteMany({
+    where: { dashboard: { name: { startsWith: TEST_DASHBOARD_PREFIX } } },
+  });
+  await prisma.dashboard.deleteMany({ where: { name: { startsWith: TEST_DASHBOARD_PREFIX } } });
+
   // Signing in provisions a User row, so the suite would otherwise pile up a
   // stray dev user on every run. Reporter/assignee links are SetNull on delete.
-  const { prisma } = await import("@/lib/prisma");
   const { count } = await prisma.user.deleteMany({
     where: { id: { startsWith: `dev-${TEST_EMAIL_PREFIX}` } },
   });
@@ -166,7 +184,7 @@ describe("authentication", () => {
     // The session id must address a real row, or every write fails on a foreign key.
     const created2 = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ title: "provisioning check" }),
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "provisioning check" }),
     });
     assert.equal(created2.status, 201, "a dev session must be able to create an issue");
     const { issue } = (await created2.json()) as { issue: { id: string } };
@@ -187,7 +205,7 @@ describe("issue lifecycle", () => {
 
     const create = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify({ dashboardId: testDashboardId,
         title: "  Round trip  ",
         description: "  spaced  ",
         priority: "HIGH",
@@ -232,17 +250,45 @@ describe("issue lifecycle", () => {
       "validation runs before the existence check",
     );
     assert.equal(
-      (await client.request("/api/issues", { method: "POST", body: JSON.stringify({ title: "" }) }))
+      (await client.request("/api/issues", { method: "POST", body: JSON.stringify({ dashboardId: testDashboardId, title: "" }) }))
         .status,
       400,
     );
+  });
+
+  it("requires an existing dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const body of [{ title: "no dashboard" }, { title: "bad dashboard", dashboardId: "nope" }]) {
+      const response = await client.request("/api/issues", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400, JSON.stringify(body));
+      const json = (await response.json()) as { fields?: Record<string, string> };
+      assert.ok(json.fields?.dashboardId, "expected fields.dashboardId");
+    }
+  });
+
+  it("returns the issue's dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await client.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "dashboard check" }),
+    });
+    assert.equal(response.status, 201);
+    const { issue } = (await response.json()) as {
+      issue: { id: string; dashboard: { id: string; name: string } };
+    };
+    created.push(issue.id);
+    assert.equal(issue.dashboard.id, testDashboardId);
+    assert.match(issue.dashboard.name, new RegExp(`^${TEST_DASHBOARD_PREFIX}`));
   });
 
   it("never lets the client forge the reporter", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const response = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ title: "forged reporter", reporterId: "someone-else" }),
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "forged reporter", reporterId: "someone-else" }),
     });
     assert.equal(response.status, 201);
     const { issue } = (await response.json()) as {
@@ -263,7 +309,7 @@ describe("workflow enforcement", () => {
     await client.devLogin("E2E Flow", `${unique()}@example.com`);
     const response = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ title: "workflow check" }),
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "workflow check" }),
     });
     issueId = ((await response.json()) as { issue: { id: string } }).issue.id;
     created.push(issueId);
@@ -365,7 +411,7 @@ describe("assignee handling", () => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const create = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ title: "assignee check" }),
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "assignee check" }),
     });
     const id = ((await create.json()) as { issue: { id: string } }).issue.id;
     created.push(id);
@@ -387,7 +433,7 @@ describe("assignee handling", () => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const create = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ title: "clear assignee", assigneeId: "" }),
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "clear assignee", assigneeId: "" }),
     });
     const id = ((await create.json()) as { issue: { id: string; assignee: unknown } }).issue;
     created.push(id.id);

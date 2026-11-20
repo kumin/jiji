@@ -115,6 +115,8 @@ async function main() {
   // Idempotent: re-running the seed tops the database back up to a known state.
   // Auth-owned tables cascade from User, so clearing users is enough.
   await prisma.issue.deleteMany();
+  // Issues first: the dashboard foreign key is Restrict.
+  await prisma.dashboard.deleteMany();
   await prisma.user.deleteMany();
 
   // deleteMany leaves the identity sequence where it was, which would make the
@@ -128,13 +130,22 @@ async function main() {
     users.set(user.email, created.id);
   }
 
+  const jiji = await prisma.dashboard.create({
+    data: { name: "Jiji", description: "Work on Jiji itself" },
+  });
+  const mobile = await prisma.dashboard.create({
+    data: { name: "Mobile", description: "The mobile app" },
+  });
+
   const firstUserId = users.get(USERS[0].email)!;
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  for (const issue of ISSUES) {
+  for (const [index, issue] of ISSUES.entries()) {
     await prisma.issue.create({
       data: {
+        // The first eight sample issues go to Jiji, the rest to Mobile.
+        dashboardId: index < 8 ? jiji.id : mobile.id,
         title: issue.title,
         description: issue.description ?? null,
         status: issue.status,
@@ -150,7 +161,7 @@ async function main() {
   }
 
   const total = await prisma.issue.count();
-  console.log(`Seeded ${USERS.length} users and ${total} issues.`);
+  console.log(`Seeded ${USERS.length} users, 2 dashboards and ${total} issues.`);
 }
 
 main()

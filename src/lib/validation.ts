@@ -35,6 +35,7 @@ const issueFields = {
   priority: z.enum(IssuePriority),
   assigneeId: optionalText,
   dueDate: optionalDate,
+  dashboardId: z.string("Dashboard is required").trim().min(1, "Dashboard is required"),
 };
 
 /**

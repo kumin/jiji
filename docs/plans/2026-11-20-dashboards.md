@@ -66,7 +66,12 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - `npm run check` (dev server running) → all green, with the signed-in tests passing rather than skipped.
   - In the browser, "Create issue" still creates an issue.
 - Covers: AC 8, 11, 14 (partly)
-- [ ] Done
+- Notes:
+  - The test dashboard is created at the end of the existing top-level `before` in `tests/api.test.ts`, not in a second top-level `before`. Node runs those so the second one saw `devLoginAvailable` still false.
+  - `prisma migrate dev` reports no drift for the raw `lower(name)` index. A follow-up `--create-only` produced an empty migration, which was deleted.
+  - Prisma refuses `migrate reset` when Claude Code runs it, so the reset was checked on a throwaway database instead: `migrate deploy` plus `db seed`, twice. That gave 2 dashboards (Jiji 8, Mobile 4); the database was then dropped. Your local database was migrated in place (14 issues now in "Jiji", 0 without a dashboard).
+  - Browser check: dev-login, then "Create issue" created `JIJI-130`. The test issue and user were removed afterwards.
+- [x] Done
 
 ## Task 3: GET and POST /api/dashboards
 - Files: `src/lib/types.ts`, `src/lib/dashboard-service.ts` (new), `src/app/api/dashboards/route.ts` (new), `tests/api.test.ts`
