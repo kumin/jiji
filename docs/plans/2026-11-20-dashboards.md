@@ -144,7 +144,12 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - `NavLinks`: the Issues and Board links carry the current `?dashboard=`.
 - Verify: `npm test` → green. In the browser, switching dashboards changes both views, and filters stay inside the dashboard.
 - Covers: AC 12
-- [ ] Done
+- Notes:
+  - Added a shared `NoDashboards` empty-state component, used here and in Task 9.
+  - `DashboardSwitcher` and `NavLinks` read search params, so `layout.tsx` wraps them in `<Suspense>`.
+  - Fixed test cleanup: the case-only rename test upper-cases names, so cleanup now matches `e2e-` regardless of case. This run also removed leftovers from earlier runs.
+  - Browser check: the switcher renders with the dashboards in order, and Issues/Board keep `?dashboard=`. Scoping itself is covered by the HTML tests.
+- [x] Done
 
 ## Task 8: Dashboards management page
 - Files: `src/app/dashboards/page.tsx` (new), `src/components/DashboardManager.tsx` (new), `src/components/NavLinks.tsx`, `tests/api.test.ts`

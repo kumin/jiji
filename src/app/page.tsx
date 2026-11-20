@@ -5,9 +5,10 @@ import Link from "next/link";
 import { PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from "@/lib/issue";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { prisma } from "@/lib/prisma";
-import { getStatusCounts, listIssues } from "@/lib/queries";
+import { getStatusCounts, listIssues, resolveDashboard } from "@/lib/queries";
 
 import { IssueTable } from "@/components/IssueTable";
+import { NoDashboards } from "@/components/NoDashboards";
 
 const inputClass =
   "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
@@ -28,10 +29,22 @@ function toOrderBy(raw: Record<string, string | string[] | undefined>) {
 
 export default async function IssuesPage({ searchParams }: PageProps) {
   const raw = await searchParams;
-  const filters = parseIssueFilters(raw);
+  const dashboard = await resolveDashboard(raw.dashboard);
+  if (!dashboard) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900">Issues</h1>
+        <NoDashboards />
+      </div>
+    );
+  }
+
+  // `dashboard` (from the URL) is the scope; the other params are filters.
+  const filters = { ...parseIssueFilters(raw), dashboardId: dashboard.id };
+  const scoped = (query: string) => `/?dashboard=${dashboard.id}${query ? `&${query}` : ""}`;
   const [issues, counts, users] = await Promise.all([
     listIssues(buildIssueWhere(filters), toOrderBy(raw)),
-    getStatusCounts(),
+    getStatusCounts(dashboard.id),
     prisma.user.findMany({ orderBy: { name: "asc" } }),
   ]);
 
@@ -40,7 +53,9 @@ export default async function IssuesPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900">Issues</h1>
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900">
+          {dashboard.name} <span className="font-normal text-slate-400">/ Issues</span>
+        </h1>
         <span className="text-sm text-slate-500">
           {activeCount} {activeCount === 1 ? "issue" : "issues"}
         </span>
@@ -50,6 +65,7 @@ export default async function IssuesPage({ searchParams }: PageProps) {
         method="get"
         className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3"
       >
+        <input type="hidden" name="dashboard" value={dashboard.id} />
         <input
           type="search"
           name="q"
@@ -109,7 +125,7 @@ export default async function IssuesPage({ searchParams }: PageProps) {
           Apply
         </button>
         <Link
-          href="/"
+          href={scoped("")}
           className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
         >
           Reset
@@ -122,7 +138,7 @@ export default async function IssuesPage({ searchParams }: PageProps) {
           return (
             <Link
               key={status}
-              href={`/?status=${status}`}
+              href={scoped(`status=${status}`)}
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition ${
                 active ? STATUS_META[status].chip : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
               }`}

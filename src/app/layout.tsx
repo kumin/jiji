@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 import { NavLinks } from "@/components/NavLinks";
 import { UserMenu } from "@/components/UserMenu";
 import { auth } from "@/lib/auth";
+import { listDashboards } from "@/lib/queries";
 
 import "./globals.css";
 
@@ -18,6 +21,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const dashboards = session?.user ? await listDashboards() : [];
 
   return (
     <html lang="en">
@@ -30,7 +34,13 @@ export default async function RootLayout({
               </span>
               <span className="text-sm font-semibold tracking-tight text-slate-900">Jiji</span>
             </Link>
-            {session?.user && <NavLinks />}
+            {session?.user && (
+              // Both read the URL's search params on the client.
+              <Suspense>
+                <DashboardSwitcher dashboards={dashboards} />
+                <NavLinks />
+              </Suspense>
+            )}
             <div className="ml-auto flex items-center gap-2">
               {session?.user ? (
                 <>

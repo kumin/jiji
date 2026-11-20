@@ -122,10 +122,12 @@ after(async () => {
   }
 
   const { prisma } = await import("@/lib/prisma");
-  await prisma.issue.deleteMany({
-    where: { dashboard: { name: { startsWith: TEST_DASHBOARD_PREFIX } } },
-  });
-  await prisma.dashboard.deleteMany({ where: { name: { startsWith: TEST_DASHBOARD_PREFIX } } });
+  // Case-insensitive: the case-only rename test upper-cases names to "E2E-...".
+  const testDashboards = {
+    name: { startsWith: TEST_DASHBOARD_PREFIX, mode: "insensitive" as const },
+  };
+  await prisma.issue.deleteMany({ where: { dashboard: testDashboards } });
+  await prisma.dashboard.deleteMany({ where: testDashboards });
 
   // Signing in provisions a User row, so the suite would otherwise pile up a
   // stray dev user on every run. Reporter/assignee links are SetNull on delete.
@@ -582,10 +584,10 @@ describe("dashboards", () => {
     return ((await response.json()) as DashboardBody).dashboard;
   }
 
-  async function createIssueIn(dashboardId: string) {
+  async function createIssueIn(dashboardId: string, title = "dashboard member") {
     const response = await client.request("/api/issues", {
       method: "POST",
-      body: JSON.stringify({ dashboardId, title: "dashboard member" }),
+      body: JSON.stringify({ dashboardId, title }),
     });
     assert.equal(response.status, 201);
     const { issue } = (await response.json()) as { issue: { id: string } };
@@ -742,6 +744,32 @@ describe("dashboards", () => {
     const all = (await (await client.request("/api/issues")).json()) as { issues: { id: string }[] };
     const ids = new Set(all.issues.map((i) => i.id));
     assert.ok(ids.has(todo.id) && ids.has(other.id), "no parameter means every dashboard");
+  });
+
+  it("scopes the list and board pages to the selected dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const a = await createDashboard();
+    const b = await createDashboard();
+    const titleA = `${tag()} only-in-A`;
+    const titleB = `${tag()} only-in-B`;
+    await createIssueIn(a.id, titleA);
+    await createIssueIn(b.id, titleB);
+
+    for (const path of ["/", "/board"]) {
+      const response = await client.get(`${path}?dashboard=${a.id}`);
+      assert.equal(response.status, 200, path);
+      const html = await response.text();
+      assert.ok(html.includes(titleA), `${path} shows A's issue`);
+      assert.ok(!html.includes(titleB), `${path} hides B's issue`);
+    }
+  });
+
+  it("404s a page for an unknown dashboard", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const path of ["/", "/board"]) {
+      const response = await client.get(`${path}?dashboard=does-not-exist`);
+      assert.equal(response.status, 404, path);
+    }
   });
 
   it("404s when deleting an unknown dashboard", async (t) => {
