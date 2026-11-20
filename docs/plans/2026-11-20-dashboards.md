@@ -34,7 +34,8 @@ Baseline result: 2026-11-20, `npm run check` with the dev server on (`AUTH_DEV_L
 - Change: add `dashboardCreateSchema = z.object({ name, description: optionalText.pipe(...) })` with the limits above. Add `dashboardPatchSchema = z.object({...}).partial().refine(non-empty)`, using the same pattern as `issuePatchSchema`. The description limit applies after trimming.
 - Verify: `npm test` → the new validation tests pass, and nothing else changes.
 - Covers: AC 2 (schema level)
-- [ ] Done
+- Note: the "`{description: undefined}` leaves the key absent" case was changed to "a missing key stays absent". `optionalText` turns an explicit `undefined` into `null`, the same as the issue schema. JSON bodies can't carry `undefined`, so this can't happen over HTTP.
+- [x] Done
 
 ## Task 2: Issues belong to a dashboard (schema, migration, create path) ⚠️ risky
 This is one task because a required `Issue.dashboardId` breaks every issue create until the API and tests send it.

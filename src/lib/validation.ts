@@ -60,6 +60,30 @@ export const issuePatchSchema = z.object(issueFields).partial().refine(
   { message: "Provide at least one field to update" },
 );
 
+const dashboardFields = {
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(80, "Name must be 80 characters or fewer"),
+  // Trim first (via optionalText), then measure, so surrounding whitespace never
+  // pushes a valid description over the limit.
+  description: optionalText.pipe(
+    z.string().max(500, "Description must be 500 characters or fewer").nullable(),
+  ),
+};
+
+/** POST /api/dashboards body. */
+export const dashboardCreateSchema = z.object(dashboardFields);
+
+/** PATCH /api/dashboards/{id} body. Same `.partial()` + non-empty pattern as issues. */
+export const dashboardPatchSchema = z
+  .object(dashboardFields)
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "Provide at least one field to update",
+  });
+
 export const transitionSchema = z.object({
   status: z.enum(IssueStatus),
 });

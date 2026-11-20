@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import { IssuePriority, IssueStatus } from "@/generated/prisma/enums";
 import {
+  dashboardCreateSchema,
+  dashboardPatchSchema,
   fieldErrors,
   issueCreateSchema,
   issuePatchSchema,
@@ -144,5 +146,70 @@ describe("fieldErrors", () => {
 
   it("returns an empty object when there are no issues", () => {
     assert.deepEqual(fieldErrors({ issues: [] } as never), {});
+  });
+});
+
+describe("dashboardCreateSchema", () => {
+  it("trims the name", () => {
+    assert.equal(dashboardCreateSchema.parse({ name: "  Website  " }).name, "Website");
+  });
+
+  it("requires a non-blank name of at most 80 characters", () => {
+    for (const name of [undefined, "", "   ", "a".repeat(81)]) {
+      const parsed = dashboardCreateSchema.safeParse({ name });
+      assert.equal(parsed.success, false, String(name));
+      if (!parsed.success) assert.equal(typeof fieldErrors(parsed.error).name, "string");
+    }
+    assert.equal(dashboardCreateSchema.safeParse({ name: "a".repeat(80) }).success, true);
+  });
+
+  it("stores a blank description as null", () => {
+    for (const description of [undefined, "", "   ", null]) {
+      assert.equal(
+        dashboardCreateSchema.parse({ name: "x", description }).description,
+        null,
+        String(description),
+      );
+    }
+  });
+
+  it("caps the description at 500 characters after trimming", () => {
+    assert.equal(
+      dashboardCreateSchema.safeParse({ name: "x", description: "a".repeat(500) }).success,
+      true,
+    );
+    assert.equal(
+      dashboardCreateSchema.safeParse({ name: "x", description: ` ${"a".repeat(500)} ` }).success,
+      true,
+    );
+    const tooLong = dashboardCreateSchema.safeParse({ name: "x", description: "a".repeat(501) });
+    assert.equal(tooLong.success, false);
+    if (!tooLong.success) assert.equal(typeof fieldErrors(tooLong.error).description, "string");
+  });
+});
+
+describe("dashboardPatchSchema", () => {
+  it("rejects an empty patch", () => {
+    assert.equal(dashboardPatchSchema.safeParse({}).success, false);
+  });
+
+  it("accepts a name, a description, or both", () => {
+    assert.deepEqual(dashboardPatchSchema.parse({ name: " Site " }), { name: "Site" });
+    assert.deepEqual(dashboardPatchSchema.parse({ description: "" }), { description: null });
+    assert.deepEqual(dashboardPatchSchema.parse({ name: "a", description: "b" }), {
+      name: "a",
+      description: "b",
+    });
+  });
+
+  it("leaves an absent key absent", () => {
+    // JSON bodies cannot carry `undefined`, so "absent" means the key is missing.
+    const parsed = dashboardPatchSchema.parse({ name: "a" });
+    assert.deepEqual(Object.keys(parsed), ["name"]);
+  });
+
+  it("validates the fields it does receive", () => {
+    assert.equal(dashboardPatchSchema.safeParse({ name: "" }).success, false);
+    assert.equal(dashboardPatchSchema.safeParse({ description: "a".repeat(501) }).success, false);
   });
 });
