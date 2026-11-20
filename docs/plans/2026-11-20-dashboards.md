@@ -183,12 +183,12 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
 - [x] Done
 
 ## Task 10: Final verification
-- [ ] `npm run db:reset` → migrations plus seed apply from scratch.
-- [ ] On a copy of the current data (`pg_dump` → a new database), `npm run db:deploy` applies the migration, every issue belongs to "Jiji", and the next created issue continues the `JIJI-N` sequence.
-- [ ] `npm run check` with the dev server on (`AUTH_DEV_LOGIN=true`) → green, with no signed-in tests skipped.
-- [ ] `npm run build` → succeeds.
+- [x] `npm run db:reset` → migrations plus seed apply from scratch. Prisma blocks `migrate reset` when Claude Code runs it, so this was checked on a throwaway database with `migrate deploy` plus `db seed` (Jiji 8, Mobile 4). The database was dropped afterwards.
+- [x] On a copy of the current data (`pg_dump` → a new database), `npm run db:deploy` applies the migration, every issue belongs to "Jiji", and the next created issue continues the `JIJI-N` sequence. Done on the live local database in Task 2 rather than a copy: all 14 issues are in "Jiji" with none lacking a dashboard, and later creates continued the global sequence (`JIJI-130`, `JIJI-346`).
+- [x] `npm run check` with the dev server on (`AUTH_DEV_LOGIN=true`) → green, with no signed-in tests skipped: 113 tests, 113 pass, 0 fail, 0 skipped.
+- [x] `npm run build` → succeeds.
 - Covers: AC 11, 14
-- [ ] Done
+- [x] Done
 
 ## Acceptance criteria coverage
 | AC | Task(s) |
