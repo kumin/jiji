@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { CreateIssueLink } from "@/components/CreateIssueLink";
 import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 import { NavLinks } from "@/components/NavLinks";
 import { UserMenu } from "@/components/UserMenu";
@@ -53,12 +54,9 @@ export default async function RootLayout({
                       image: session.user.image ?? null,
                     }}
                   />
-                  <Link
-                    href="/issues/new"
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                  >
-                    Create issue
-                  </Link>
+                  <Suspense>
+                    <CreateIssueLink className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700" />
+                  </Suspense>
                 </>
               ) : (
                 <Link

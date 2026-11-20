@@ -175,7 +175,12 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
   - The detail page shows the dashboard name as a field.
 - Verify: `npm run check` → green. In the browser: create from WEB with the select preselected; edit an issue and change its dashboard, so it leaves WEB's list, appears in the other one, and keeps its `JIJI-N` key.
 - Covers: AC 9 (UI), spec flow step 3
-- [ ] Done
+- Notes:
+  - "Create issue" in the header is now a small client component (`CreateIssueLink`) so it can read `?dashboard=`; the layout is a server component and can't. An unknown `?dashboard=` on the new-issue page falls back to the first dashboard instead of returning 404.
+  - "← All issues" on the detail page goes back to the issue's dashboard.
+  - Browser check: from the e2e-ui Mobile list, "Create issue" preselected e2e-ui Mobile and created `JIJI-346` there; Edit then moved it to Jiji, and the key stayed `JIJI-346`. Test data was removed afterwards.
+  - Seen, not changed (existing behaviour): after Save the editor stays open because the page pushes to its own URL. A browser session whose user row was deleted gets "Your account no longer exists. Sign in again." on create.
+- [x] Done
 
 ## Task 10: Final verification
 - [ ] `npm run db:reset` → migrations plus seed apply from scratch.

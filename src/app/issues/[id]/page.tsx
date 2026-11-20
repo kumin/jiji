@@ -8,7 +8,7 @@ import { PriorityLabel } from "@/components/Priority";
 import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { describeDue, formatDate } from "@/lib/dates";
-import { getIssue, listUsers } from "@/lib/queries";
+import { getIssue, listDashboards, listUsers } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,11 @@ export default async function IssueDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [issue, users] = await Promise.all([getIssue(id), listUsers()]);
+  const [issue, users, dashboards] = await Promise.all([
+    getIssue(id),
+    listUsers(),
+    listDashboards(),
+  ]);
 
   if (!issue) notFound();
 
@@ -35,7 +39,10 @@ export default async function IssueDetailPage({
 
   return (
     <div className="space-y-6">
-      <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
+      <Link
+        href={`/?dashboard=${issue.dashboard.id}`}
+        className="text-sm text-slate-500 hover:text-slate-900"
+      >
         ← All issues
       </Link>
 
@@ -59,7 +66,7 @@ export default async function IssueDetailPage({
 
           <section className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="mb-4 text-sm font-semibold text-slate-700">Edit</h2>
-            <EditIssueSection issue={issue} users={users} />
+            <EditIssueSection issue={issue} users={users} dashboards={dashboards} />
           </section>
         </div>
 
@@ -72,6 +79,14 @@ export default async function IssueDetailPage({
           </div>
 
           <dl className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
+            <Field label="Dashboard">
+              <Link
+                href={`/?dashboard=${issue.dashboard.id}`}
+                className="text-blue-700 hover:underline"
+              >
+                {issue.dashboard.name}
+              </Link>
+            </Field>
             <Field label="Priority">
               <PriorityLabel priority={issue.priority} />
             </Field>

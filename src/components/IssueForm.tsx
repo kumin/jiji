@@ -7,7 +7,7 @@ import { IssuePriority, IssueStatus } from "@/generated/prisma/enums";
 
 import { PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from "@/lib/issue";
 import { toDateInputValue } from "@/lib/dates";
-import type { IssueDTO, UserDTO } from "@/lib/types";
+import type { DashboardDTO, IssueDTO, UserDTO } from "@/lib/types";
 
 const fieldClass =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50";
@@ -15,15 +15,16 @@ const labelClass = "mb-1.5 block text-sm font-medium text-slate-700";
 
 type Props = {
   users: UserDTO[];
+  dashboards: DashboardDTO[];
   /** Omit to render a create form; pass an issue to render the edit form. */
   issue?: IssueDTO;
-  /** Dashboard a new issue is created in. Ignored when editing. */
-  dashboardId?: string;
+  /** Preselected dashboard for a new issue (the one being viewed). Ignored when editing. */
+  defaultDashboardId?: string;
 };
 
 type Errors = Record<string, string>;
 
-export function IssueForm({ users, issue, dashboardId }: Props) {
+export function IssueForm({ users, dashboards, issue, defaultDashboardId }: Props) {
   const router = useRouter();
   const editing = Boolean(issue);
 
@@ -33,6 +34,9 @@ export function IssueForm({ users, issue, dashboardId }: Props) {
   const [priority, setPriority] = useState<IssuePriority>(issue?.priority ?? IssuePriority.MEDIUM);
   const [assigneeId, setAssigneeId] = useState(issue?.assignee?.id ?? "");
   const [dueDate, setDueDate] = useState(toDateInputValue(issue?.dueDate ?? null));
+  const [dashboardId, setDashboardId] = useState(
+    issue?.dashboard.id ?? defaultDashboardId ?? dashboards[0]?.id ?? "",
+  );
 
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -51,7 +55,8 @@ export function IssueForm({ users, issue, dashboardId }: Props) {
       priority,
       assigneeId,
       dueDate,
-      ...(editing ? {} : { dashboardId }),
+      // On edit, a different dashboard moves the issue; the key stays the same.
+      dashboardId,
     };
 
     try {
@@ -124,6 +129,29 @@ export function IssueForm({ users, issue, dashboardId }: Props) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label htmlFor="dashboardId" className={labelClass}>
+            Dashboard
+          </label>
+          <select
+            id="dashboardId"
+            value={dashboardId}
+            onChange={(event) => setDashboardId(event.target.value)}
+            className={fieldClass}
+            aria-invalid={Boolean(errors.dashboardId)}
+            required
+          >
+            {dashboards.map((dashboard) => (
+              <option key={dashboard.id} value={dashboard.id}>
+                {dashboard.name}
+              </option>
+            ))}
+          </select>
+          {errors.dashboardId ? (
+            <p className="mt-1 text-sm text-rose-600">{errors.dashboardId}</p>
+          ) : null}
+        </div>
+
         <div>
           <label htmlFor="status" className={labelClass}>
             Status
