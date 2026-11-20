@@ -49,6 +49,21 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     changes.assigneeId = assignee.value;
   }
 
+  // Moving to another dashboard: an unknown id would otherwise surface as a
+  // foreign-key violation and a 500.
+  if (changes.dashboardId !== undefined) {
+    const dashboard = await prisma.dashboard.findUnique({
+      where: { id: changes.dashboardId },
+      select: { id: true },
+    });
+    if (!dashboard) {
+      return NextResponse.json(
+        { error: "Validation failed", fields: { dashboardId: "Dashboard not found" } },
+        { status: 400 },
+      );
+    }
+  }
+
   const existing = await prisma.issue.findUnique({ where: { id }, select: { id: true } });
   if (!existing) {
     return NextResponse.json({ error: "Issue not found" }, { status: 404 });

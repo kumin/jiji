@@ -118,7 +118,7 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
 - Change: in PATCH, when `changes.dashboardId !== undefined`, check that the dashboard exists, or return 400 `fields.dashboardId = "Dashboard not found"`. Keep the existing order: validation, then existence check, then update.
 - Verify: `npm test` → green.
 - Covers: AC 9 (API)
-- [ ] Done
+- [x] Done
 
 ## Task 6: Filter issues and counts by dashboard
 - Files: `src/lib/issue-filters.ts`, `src/lib/queries.ts`, `src/app/api/issues/route.ts`, `tests/issue-filters.test.ts`, `tests/api.test.ts`

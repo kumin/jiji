@@ -666,6 +666,42 @@ describe("dashboards", () => {
     }
   });
 
+  it("moves an issue to another dashboard and keeps its key", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const a = await createDashboard();
+    const b = await createDashboard();
+    const original = await createIssueIn(a.id);
+    const before = (await (await client.request(`/api/issues/${original.id}`)).json()) as {
+      issue: { key: string; number: number };
+    };
+
+    const move = await client.request(`/api/issues/${original.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ dashboardId: b.id }),
+    });
+    assert.equal(move.status, 200);
+    const { issue } = (await move.json()) as {
+      issue: { key: string; number: number; dashboard: { id: string; name: string } };
+    };
+    assert.equal(issue.dashboard.id, b.id);
+    assert.equal(issue.dashboard.name, b.name);
+    assert.equal(issue.key, before.issue.key, "moving must not change the key");
+    assert.equal(issue.number, before.issue.number);
+
+    const reread = (await (await client.request(`/api/issues/${original.id}`)).json()) as {
+      issue: { dashboard: { id: string } };
+    };
+    assert.equal(reread.issue.dashboard.id, b.id);
+
+    const bad = await client.request(`/api/issues/${original.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ dashboardId: "nope" }),
+    });
+    assert.equal(bad.status, 400);
+    const json = (await bad.json()) as { fields?: Record<string, string> };
+    assert.ok(json.fields?.dashboardId, "expected fields.dashboardId");
+  });
+
   it("404s when deleting an unknown dashboard", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const response = await client.request("/api/dashboards/does-not-exist", { method: "DELETE" });
