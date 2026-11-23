@@ -25,7 +25,7 @@ Any signed-in user can do anything in Jiji: create, rename and delete any dashbo
 - `prisma/schema.prisma` plus a migration: `Role` enum and `User.role`.
 - `src/lib/permissions.ts` (new): a pure `can(user, action, issue?)` function holding the table above, so the API and the UI share one source of truth.
 - `src/lib/require-user.ts`: a new `currentUser()` returns `{ id, role }`, read from the database on each request, so a role change takes effect immediately instead of waiting for the session to expire. `currentUserId()` stays for existing callers.
-- `src/lib/auth.ts`: on sign-in (Google and dev-login), an email in `ADMIN_EMAILS` is promoted to Admin.
+- `src/lib/auth.ts`: on sign-in (Google and dev-login), an `events.signIn` handler promotes an email in `ADMIN_EMAILS` to Admin.
 - Write endpoints check `can(...)` and return 403: `POST /api/issues`; `PATCH` and `DELETE /api/issues/{id}`; `POST /api/issues/{id}/transition`; `POST /api/dashboards`; `PATCH` and `DELETE /api/dashboards/{id}`.
 - `src/app/api/users/[id]/route.ts` (new): `PATCH` to change a role. `GET /api/users` adds `role`.
 - UI: `src/app/users/page.tsx` (new, Admins only), a "Users" nav link for Admins, and hidden or disabled controls in `layout.tsx` ("Create issue"), `IssueDetail` (Edit, Delete, `StatusSelect`, `AssigneeSelect`), `Board` (drag), and `DashboardManager` (create, rename, delete).
@@ -63,7 +63,7 @@ model User {
 The migration adds the column with default `MEMBER`, so every existing user becomes a Member, and nothing else changes. `ADMIN_EMAILS` is a comma-separated list of emails compared without regard to case, for example `ADMIN_EMAILS="you@gmail.com"`. Listed users are promoted on each sign-in; removing an email from the list does **not** demote anyone, which is done on the Users page. In the seed data, Ada Lovelace is an Admin.
 
 ### Flow
-1. A user signs in. The `signIn` callback creates their row as usual (default `MEMBER`) and, if their email is in `ADMIN_EMAILS`, sets `role = ADMIN`.
+1. A user signs in, and their row is created as usual (default `MEMBER`). Then the `events.signIn` handler sets `role = ADMIN` if their email is in `ADMIN_EMAILS`. It's an event, not the `signIn` callback, because a first-time Google user's row only exists after the callback returns.
 2. On each write request, the route calls `currentUser()` (session, then a database lookup of the role). If there's no user it returns 401; if `can(user, action, issue)` is false it returns 403 with a reason.
 3. Pages call `currentUser()` and pass `role` and `id` down; components use the same `can()` to hide or disable controls. The UI only hides controls; the API is what enforces the rules.
 4. An Admin changes a role on `/users`. The change applies on the target user's next request, with no need to sign in again.

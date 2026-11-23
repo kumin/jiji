@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cache } from "react";
 
 import { auth } from "@/lib/auth";
 import { type Action, type Actor, type IssueOwnership, denyReason } from "@/lib/permissions";
@@ -17,14 +18,17 @@ export async function currentUserId(): Promise<string | null> {
 /**
  * The signed-in user with their role, or null when there is no session (or the
  * session points at a deleted user). The role is read from the database on
- * every call rather than stored in the session token, so a role change takes
+ * each request rather than stored in the session token, so a role change takes
  * effect on the user's next request without signing in again.
+ *
+ * Wrapped in React's `cache`, so the layout and the page share one lookup per
+ * render instead of querying twice.
  */
-export async function currentUser(): Promise<Actor | null> {
+export const currentUser = cache(async (): Promise<Actor | null> => {
   const id = await currentUserId();
   if (!id) return null;
   return prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
-}
+});
 
 export const UNAUTHORIZED_RESPONSE = { error: "Unauthorized" } as const;
 

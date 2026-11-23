@@ -249,3 +249,8 @@ Conventions used below:
 ## Deviations from the spec
 - The ADMIN_EMAILS promotion runs in `events.signIn` rather than the `signIn` callback (Task 7). The behaviour the spec describes is unchanged; only the hook differs, because a new Google user's row doesn't exist yet when the callback runs.
 - `/issues/new` returns 404 for Viewers (Task 9). The spec only said to hide the link, and this follows the same rule as `/users`.
+
+## Verify-work fixes
+- The spec now says `events.signIn` promotes ADMIN_EMAILS users, matching the code.
+- `currentUser()` is wrapped in React `cache`, so the layout and the page share one role lookup per render.
+- A Serializable conflict (P2034) on a role change returns 409 "Roles were changed at the same time. Try again." instead of the last-Admin message. A new test has two Admins demote each other at once and checks that at least one Admin remains.

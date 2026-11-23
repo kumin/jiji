@@ -1229,6 +1229,28 @@ describe("changing roles", () => {
     assert.equal((await patchRole(admin, memberId, "MEMBER")).status, 200);
   });
 
+  it("keeps an Admin when two Admins demote each other at once", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    // Runs after "never demotes the last Admin", so the real Admins are still
+    // demoted and the test Admin is the only one. Add a second.
+    const other = createClient();
+    const otherId = await signInAs(other, "E2E Role Rival", "ADMIN");
+
+    const [first, second] = await Promise.all([
+      patchRole(admin, otherId, "MEMBER"),
+      patchRole(other, adminId, "MEMBER"),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    assert.ok(!(statuses[0] === 200 && statuses[1] === 200), "both demotions must not succeed");
+    for (const response of [first, second]) {
+      assert.ok([200, 403, 409].includes(response.status), `unexpected ${response.status}`);
+    }
+
+    const { prisma } = await import("@/lib/prisma");
+    const admins = await prisma.user.count({ where: { role: "ADMIN", id: { in: [adminId, otherId] } } });
+    assert.ok(admins >= 1, "at least one Admin must remain");
+  });
+
   it("returns 401 without a session", async (t) => {
     if (!reachable) return t.skip("no server");
     const response = await patchRole(createClient(), "whatever", "ADMIN");
