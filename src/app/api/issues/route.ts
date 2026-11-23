@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
 
 import { resolveAssignee } from "@/lib/assignee";
+import {
+  DASHBOARD_NOT_FOUND_RESPONSE,
+  isDashboardForeignKeyViolation,
+} from "@/lib/dashboard-service";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
@@ -70,10 +74,7 @@ export async function POST(request: Request) {
     select: { id: true },
   });
   if (!dashboard) {
-    return NextResponse.json(
-      { error: "Validation failed", fields: { dashboardId: "Dashboard not found" } },
-      { status: 400 },
-    );
+    return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
   }
 
   if (parsed.data.assigneeId !== undefined) {
@@ -98,11 +99,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const issue = await prisma.issue.create({
-    // The reporter is always the signed-in user, never the request body.
-    data: { ...parsed.data, reporterId: userId },
-    include: ISSUE_INCLUDE,
-  });
-
-  return NextResponse.json({ issue: toIssueDTO(issue) }, { status: 201 });
+  try {
+    const issue = await prisma.issue.create({
+      // The reporter is always the signed-in user, never the request body.
+      data: { ...parsed.data, reporterId: userId },
+      include: ISSUE_INCLUDE,
+    });
+    return NextResponse.json({ issue: toIssueDTO(issue) }, { status: 201 });
+  } catch (error) {
+    // The dashboard was deleted after the check above.
+    if (isDashboardForeignKeyViolation(error)) {
+      return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
+    }
+    throw error;
+  }
 }

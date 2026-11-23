@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AssigneeChip } from "@/components/Avatar";
 import { DeleteIssueButton } from "@/components/DeleteIssueButton";
@@ -23,10 +23,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default async function IssueDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = await params;
+  const [{ id }, query] = await Promise.all([params, searchParams]);
   const [issue, users, dashboards] = await Promise.all([
     getIssue(id),
     listUsers(),
@@ -34,6 +36,13 @@ export default async function IssueDetailPage({
   ]);
 
   if (!issue) notFound();
+
+  // Keep the issue's own dashboard in the URL, so the header switcher, nav
+  // links and "Create issue" all reflect it (they read `?dashboard=`). This also
+  // corrects the URL after the issue is moved to another dashboard.
+  if (query.dashboard !== issue.dashboard.id) {
+    redirect(`/issues/${issue.id}?dashboard=${encodeURIComponent(issue.dashboard.id)}`);
+  }
 
   const due = describeDue(issue.dueDate, issue.status);
 
@@ -111,7 +120,11 @@ export default async function IssueDetailPage({
           </dl>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <DeleteIssueButton id={issue.id} issueKey={issue.key} />
+            <DeleteIssueButton
+              id={issue.id}
+              issueKey={issue.key}
+              dashboardId={issue.dashboard.id}
+            />
           </div>
         </aside>
       </div>

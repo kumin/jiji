@@ -764,6 +764,26 @@ describe("dashboards", () => {
     }
   });
 
+  it("puts the issue's own dashboard in the issue page URL", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const a = await createDashboard();
+    const b = await createDashboard();
+    const issue = await createIssueIn(a.id);
+
+    for (const query of ["", `?dashboard=${b.id}`]) {
+      const response = await client.request(`/issues/${issue.id}${query}`);
+      assert.equal(response.status, 307, `redirects for "${query}"`);
+      assert.equal(
+        new URL(response.headers.get("location")!, BASE).search,
+        `?dashboard=${a.id}`,
+        `canonical URL for "${query}"`,
+      );
+    }
+
+    const canonical = await client.request(`/issues/${issue.id}?dashboard=${a.id}`);
+    assert.equal(canonical.status, 200);
+  });
+
   it("404s a page for an unknown dashboard", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     for (const path of ["/", "/board"]) {

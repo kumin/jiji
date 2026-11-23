@@ -213,3 +213,10 @@ This is one task because a required `Issue.dashboardId` breaks every issue creat
 - Prisma can't express the `lower(name)` unique index in `schema.prisma`, so `migrate dev` may report drift or try to drop it. If it does, record that here; the application-level `nameTaken` check (Tasks 3 and 4) still enforces uniqueness, and P2002 handling covers races.
 - UI acceptance criteria (12, 13, 9 UI) are only partly provable by HTML assertions; the rest is manual browser checks, recorded with screenshots during `verify-work`.
 - `AUTH_DEV_LOGIN` is `false` in `.env`, so a plain `npm test` skips the signed-in tests and looks green. Always start the dev server with `AUTH_DEV_LOGIN=true` for this feature.
+
+## Follow-up: verify-work notes (2026-11-23)
+Fixes for the three "should fix" items from `verify-work`:
+- [x] Race: if the dashboard is deleted between the check and the write, issue create and move now return 400 `fields.dashboardId` instead of 500. `isDashboardForeignKeyViolation` matches `Issue_dashboardId_fkey`, so assignee and reporter foreign-key errors aren't misreported as dashboard problems (unit tests in `tests/dashboard-service.test.ts`).
+- [x] Deleting an issue returns to its dashboard's list (`/?dashboard=<id>`) instead of `/`.
+- [x] The issue page redirects to `?dashboard=<its dashboard>` when the URL is missing it or has a different one, so the switcher, nav links and "Create issue" match the issue. This also corrects the URL after a move. Covered by "puts the issue's own dashboard in the issue page URL".
+- Checks: `npm run check` gives 116 pass, 0 fail, 0 skipped; `npm run build` passes. Browser: opening an issue with no dashboard in the URL redirected to its dashboard (Beta) and the switcher showed Beta; moving it to Alpha updated the URL and switcher; deleting it landed on Alpha's list. Test data was removed afterwards.

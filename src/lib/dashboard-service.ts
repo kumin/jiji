@@ -56,6 +56,26 @@ export const isUniqueViolation = (error: unknown) => hasCode(error, "P2002");
 /** Foreign-key violation: e.g. an issue was added while its dashboard was being deleted. */
 export const isForeignKeyViolation = (error: unknown) => hasCode(error, "P2003");
 
+/**
+ * The issue's dashboard foreign key was violated: the dashboard was deleted
+ * between the route's existence check and the write. Matched by constraint name
+ * so a bad assignee or reporter id is not misreported as a dashboard problem.
+ */
+export function isDashboardForeignKeyViolation(error: unknown): boolean {
+  return (
+    isForeignKeyViolation(error) &&
+    JSON.stringify((error as Prisma.PrismaClientKnownRequestError).meta ?? {}).includes(
+      "Issue_dashboardId_fkey",
+    )
+  );
+}
+
+/** 400 body for an issue whose dashboard does not exist (or vanished mid-request). */
+export const DASHBOARD_NOT_FOUND_RESPONSE = {
+  error: "Validation failed",
+  fields: { dashboardId: "Dashboard not found" },
+} as const;
+
 export const NAME_TAKEN_RESPONSE = {
   error: "Name already in use",
   fields: { name: "Another dashboard already uses this name" },
