@@ -45,7 +45,7 @@ Conventions used below:
   - `issue:delete` for a Member without an `issue` argument is denied.
 - Verify: `npm test -- --test-name-pattern=permissions` passes, then `npm run check`.
 - Covers: AC 13 (unit part)
-- [ ] Done
+- [x] Done
 
 ## Task 3: Add the `currentUser()` and `authorize()` helpers
 - Files: `src/lib/require-user.ts`.
