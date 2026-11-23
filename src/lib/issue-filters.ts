@@ -7,6 +7,8 @@ export type IssueFilters = {
   /** The literal string "none" means "unassigned". */
   assigneeId?: string;
   q?: string;
+  /** The dashboard being viewed. A scope rather than a filter (see `isFiltered`). */
+  dashboardId?: string;
 };
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -32,12 +34,14 @@ export function parseIssueFilters(params: RawParams): IssueFilters {
   const priority = single(params.priority);
   const assigneeId = single(params.assigneeId);
   const q = single(params.q)?.trim();
+  const dashboardId = single(params.dashboardId)?.trim();
 
   return {
     ...(status && isEnumValue(IssueStatus, status) ? { status } : {}),
     ...(priority && isEnumValue(IssuePriority, priority) ? { priority } : {}),
     ...(assigneeId ? { assigneeId } : {}),
     ...(q ? { q } : {}),
+    ...(dashboardId ? { dashboardId } : {}),
   };
 }
 
@@ -53,6 +57,7 @@ function escapeLike(term: string): string {
 
 export function buildIssueWhere(filters: IssueFilters): Prisma.IssueWhereInput {
   const base = {
+    ...(filters.dashboardId ? { dashboardId: filters.dashboardId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.priority ? { priority: filters.priority } : {}),
     ...(filters.assigneeId === "none"
@@ -78,6 +83,7 @@ export function buildIssueWhere(filters: IssueFilters): Prisma.IssueWhereInput {
   };
 }
 
+/** Whether the user narrowed the view. The dashboard is the view itself, so it doesn't count. */
 export function isFiltered(filters: IssueFilters): boolean {
   return Boolean(filters.status || filters.priority || filters.assigneeId || filters.q);
 }

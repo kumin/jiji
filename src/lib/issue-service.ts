@@ -6,6 +6,7 @@ import type { IssueDTO, UserDTO } from "@/lib/types";
 export const ISSUE_INCLUDE = {
   assignee: true,
   reporter: true,
+  dashboard: { select: { id: true, name: true } },
 } satisfies Prisma.IssueInclude;
 
 export type IssueWithRelations = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
@@ -49,5 +50,6 @@ export function toIssueDTO(issue: IssueWithRelations): IssueDTO {
     updatedAt: issue.updatedAt.toISOString(),
     assignee: toUserDTO(issue.assignee),
     reporter: toUserDTO(issue.reporter),
+    dashboard: { id: issue.dashboard.id, name: issue.dashboard.name },
   };
 }

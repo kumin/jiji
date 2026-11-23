@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { currentUserId } from "@/lib/require-user";
 import { resolveAssignee } from "@/lib/assignee";
+import {
+  DASHBOARD_NOT_FOUND_RESPONSE,
+  isDashboardForeignKeyViolation,
+} from "@/lib/dashboard-service";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { fieldErrors, issuePatchSchema } from "@/lib/validation";
 
@@ -49,18 +53,37 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     changes.assigneeId = assignee.value;
   }
 
+  // Moving to another dashboard: an unknown id would otherwise surface as a
+  // foreign-key violation and a 500.
+  if (changes.dashboardId !== undefined) {
+    const dashboard = await prisma.dashboard.findUnique({
+      where: { id: changes.dashboardId },
+      select: { id: true },
+    });
+    if (!dashboard) {
+      return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
+    }
+  }
+
   const existing = await prisma.issue.findUnique({ where: { id }, select: { id: true } });
   if (!existing) {
     return NextResponse.json({ error: "Issue not found" }, { status: 404 });
   }
 
-  const issue = await prisma.issue.update({
-    where: { id },
-    data: changes,
-    include: ISSUE_INCLUDE,
-  });
-
-  return NextResponse.json({ issue: toIssueDTO(issue) });
+  try {
+    const issue = await prisma.issue.update({
+      where: { id },
+      data: changes,
+      include: ISSUE_INCLUDE,
+    });
+    return NextResponse.json({ issue: toIssueDTO(issue) });
+  } catch (error) {
+    // Moving into a dashboard that was deleted after the check above.
+    if (isDashboardForeignKeyViolation(error)) {
+      return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 export async function DELETE(_request: Request, { params }: RouteContext) {

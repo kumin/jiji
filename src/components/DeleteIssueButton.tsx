@@ -3,7 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function DeleteIssueButton({ id, issueKey }: { id: string; issueKey: string }) {
+export function DeleteIssueButton({
+  id,
+  issueKey,
+  dashboardId,
+}: {
+  id: string;
+  issueKey: string;
+  /** Where to land after deleting: the list of the dashboard the issue was in. */
+  dashboardId: string;
+}) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
@@ -20,7 +29,7 @@ export function DeleteIssueButton({ id, issueKey }: { id: string; issueKey: stri
         setPending(false);
         return;
       }
-      router.push("/");
+      router.push(`/?dashboard=${encodeURIComponent(dashboardId)}`);
       router.refresh();
     } catch {
       setError("Could not reach the server. The issue was not deleted.");

@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 
 import type { Prisma } from "@/generated/prisma/client";
-import { IssueStatus } from "@/generated/prisma/enums";
 
-import { STATUS_ORDER } from "@/lib/issue";
 import { resolveAssignee } from "@/lib/assignee";
+import {
+  DASHBOARD_NOT_FOUND_RESPONSE,
+  isDashboardForeignKeyViolation,
+} from "@/lib/dashboard-service";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
+import { getStatusCounts } from "@/lib/queries";
 import { currentUserId } from "@/lib/require-user";
 import { fieldErrors, issueCreateSchema } from "@/lib/validation";
 
@@ -38,15 +41,10 @@ export async function GET(request: Request) {
     orderBy,
   });
 
-  // Per-status totals across the whole board, so filter chips keep stable
-  // numbers while the other filters are applied.
-  const grouped = await prisma.issue.groupBy({ by: ["status"], _count: { _all: true } });
-  const counts = Object.fromEntries(
-    STATUS_ORDER.map((status) => [
-      status,
-      grouped.find((group) => group.status === status)?._count._all ?? 0,
-    ]),
-  ) as Record<IssueStatus, number>;
+  // Per-status totals across the whole dashboard (or every issue when no
+  // dashboard is given), so filter chips keep stable numbers while the other
+  // filters are applied.
+  const counts = await getStatusCounts(filters.dashboardId);
 
   return NextResponse.json({
     issues: issues.map(toIssueDTO),
@@ -71,6 +69,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const dashboard = await prisma.dashboard.findUnique({
+    where: { id: parsed.data.dashboardId },
+    select: { id: true },
+  });
+  if (!dashboard) {
+    return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
+  }
+
   if (parsed.data.assigneeId !== undefined) {
     const assignee = await resolveAssignee(parsed.data.assigneeId);
     if (!assignee.ok) {
@@ -93,11 +99,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const issue = await prisma.issue.create({
-    // The reporter is always the signed-in user, never the request body.
-    data: { ...parsed.data, reporterId: userId },
-    include: ISSUE_INCLUDE,
-  });
-
-  return NextResponse.json({ issue: toIssueDTO(issue) }, { status: 201 });
+  try {
+    const issue = await prisma.issue.create({
+      // The reporter is always the signed-in user, never the request body.
+      data: { ...parsed.data, reporterId: userId },
+      include: ISSUE_INCLUDE,
+    });
+    return NextResponse.json({ issue: toIssueDTO(issue) }, { status: 201 });
+  } catch (error) {
+    // The dashboard was deleted after the check above.
+    if (isDashboardForeignKeyViolation(error)) {
+      return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
+    }
+    throw error;
+  }
 }

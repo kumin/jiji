@@ -3,14 +3,16 @@
 import { useState } from "react";
 
 import { IssueForm } from "@/components/IssueForm";
-import type { IssueDTO, UserDTO } from "@/lib/types";
+import type { DashboardDTO, IssueDTO, UserDTO } from "@/lib/types";
 
 export function EditIssueSection({
   issue,
   users,
+  dashboards,
 }: {
   issue: IssueDTO;
   users: UserDTO[];
+  dashboards: DashboardDTO[];
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -28,7 +30,12 @@ export function EditIssueSection({
 
   return (
     <div className="space-y-3">
-      <IssueForm users={users} issue={issue} />
+      <IssueForm
+        users={users}
+        dashboards={dashboards}
+        issue={issue}
+        onSaved={() => setEditing(false)}
+      />
       <button
         type="button"
         onClick={() => setEditing(false)}

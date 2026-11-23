@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { CreateIssueLink } from "@/components/CreateIssueLink";
+import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 import { NavLinks } from "@/components/NavLinks";
 import { UserMenu } from "@/components/UserMenu";
 import { auth } from "@/lib/auth";
+import { listDashboards } from "@/lib/queries";
 
 import "./globals.css";
 
@@ -14,10 +18,14 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  /** The @modal slot: an issue popup over the list or board, otherwise nothing. */
+  modal: React.ReactNode;
 }>) {
   const session = await auth();
+  const dashboards = session?.user ? await listDashboards() : [];
 
   return (
     <html lang="en">
@@ -30,7 +38,13 @@ export default async function RootLayout({
               </span>
               <span className="text-sm font-semibold tracking-tight text-slate-900">Jiji</span>
             </Link>
-            <NavLinks />
+            {session?.user && (
+              // Both read the URL's search params on the client.
+              <Suspense>
+                <DashboardSwitcher dashboards={dashboards} />
+                <NavLinks />
+              </Suspense>
+            )}
             <div className="ml-auto flex items-center gap-2">
               {session?.user ? (
                 <>
@@ -43,12 +57,9 @@ export default async function RootLayout({
                       image: session.user.image ?? null,
                     }}
                   />
-                  <Link
-                    href="/issues/new"
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-                  >
-                    Create issue
-                  </Link>
+                  <Suspense>
+                    <CreateIssueLink className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700" />
+                  </Suspense>
                 </>
               ) : (
                 <Link
@@ -62,6 +73,7 @@ export default async function RootLayout({
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+        {modal}
       </body>
     </html>
   );
