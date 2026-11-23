@@ -72,7 +72,7 @@ Conventions used below:
     - Everything else stays `MEMBER`, because the issue tests delete only issues they created themselves.
   - Change the top-level `after` cleanup to delete the `created` issues with `prisma.issue.deleteMany({ where: { id: { in: created } } })` instead of an API call by a fresh Member, who will soon be refused.
 - Verify: `npm test` shows the same counts as the baseline, with 0 skipped.
-- [ ] Done
+- [x] Done
 
 ## Task 5: Enforce permissions on the issue endpoints
 - Files:

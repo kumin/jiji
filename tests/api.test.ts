@@ -111,17 +111,32 @@ function createClient() {
 }
 
 
+type TestRole = "ADMIN" | "MEMBER" | "VIEWER";
+type Client = ReturnType<typeof createClient>;
+
+/**
+ * Sign a fresh dev user in and give them `role`. The role is set through
+ * Prisma because nothing in the API lets a user promote themselves.
+ * Returns the user's id.
+ */
+async function signInAs(client: Client, name: string, role: TestRole = "MEMBER") {
+  await client.devLogin(name, `${unique()}@example.com`);
+  const id = (await client.session())?.user?.id;
+  assert.ok(id, `expected ${name} to be signed in`);
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.user.update({ where: { id }, data: { role } });
+  return id;
+}
+
 const created: string[] = [];
 
 after(async () => {
   if (!reachable) return;
-  const client = createClient();
-  await client.devLogin("Cleanup", `${unique()}@example.com`);
-  for (const id of created) {
-    await client.request(`/api/issues/${id}`, { method: "DELETE" });
-  }
-
   const { prisma } = await import("@/lib/prisma");
+  // Through Prisma, not the API: most test users are Members, who may not
+  // delete issues someone else reported.
+  await prisma.issue.deleteMany({ where: { id: { in: created } } });
+
   // Case-insensitive: the case-only rename test upper-cases names to "E2E-...".
   const testDashboards = {
     name: { startsWith: TEST_DASHBOARD_PREFIX, mode: "insensitive" as const },
@@ -199,7 +214,7 @@ describe("issue lifecycle", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E CRUD", `${unique()}@example.com`);
+    await signInAs(client, "E2E CRUD");
   });
 
   it("creates, reads, updates and deletes an issue", async (t) => {
@@ -308,7 +323,7 @@ describe("workflow enforcement", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Flow", `${unique()}@example.com`);
+    await signInAs(client, "E2E Flow");
     const response = await client.request("/api/issues", {
       method: "POST",
       body: JSON.stringify({ dashboardId: testDashboardId, title: "workflow check" }),
@@ -357,7 +372,7 @@ describe("filters and sorting", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Filters", `${unique()}@example.com`);
+    await signInAs(client, "E2E Filters");
   });
 
   it("ignores inherited Object.prototype keys instead of 500ing", async (t) => {
@@ -406,7 +421,7 @@ describe("assignee handling", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Assignee", `${unique()}@example.com`);
+    await signInAs(client, "E2E Assignee");
   });
 
   it("rejects an assignee that is not a user, with 400 not 500", async (t) => {
@@ -455,7 +470,7 @@ describe("pages render", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Pages", `${unique()}@example.com`);
+    await signInAs(client, "E2E Pages");
   });
 
   it("serves the main pages to a signed-in user", async (t) => {
@@ -490,7 +505,7 @@ describe("dashboards", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Dashboards", `${unique()}@example.com`);
+    await signInAs(client, "E2E Dashboards", "ADMIN");
   });
 
   it("creates a dashboard and lists it, sorted by name", async (t) => {
