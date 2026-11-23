@@ -58,7 +58,7 @@ Conventions used below:
   - Keep `currentUserId()` unchanged.
 - Verify: `npm run typecheck`, then `npm run check`.
 - Covers: groundwork for AC 3–10
-- [ ] Done
+- [x] Done
 
 ## Task 4: Add role-aware sign-in helpers to the API tests
 - Files: `tests/api.test.ts`.
