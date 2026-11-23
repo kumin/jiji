@@ -147,6 +147,30 @@ as anyone. Leave it unset in any deployed environment.
 If neither provider is configured, `/login` explains which variables are missing
 instead of failing.
 
+#### Roles and the first Admin
+
+Every user has one role:
+
+| | Viewer | Member | Admin |
+| --- | --- | --- | --- |
+| See dashboards, issues and users | ✓ | ✓ | ✓ |
+| Create and edit issues (fields, status, assignee, dashboard) | | ✓ | ✓ |
+| Delete an issue | | only ones they reported | ✓ |
+| Create, rename or delete dashboards | | | ✓ |
+| Change roles (the **Users** page) | | | ✓ |
+
+New users start as Members. To get your first Admin, list their email in
+`.env`:
+
+```bash
+ADMIN_EMAILS="you@gmail.com"            # comma-separated, case-insensitive
+```
+
+Listed users are promoted to Admin every time they sign in. Taking an address off
+the list does **not** demote anyone; do that on the Users page. The rules live in
+`src/lib/permissions.ts`, shared by the API (which enforces them) and the UI
+(which only hides what you can't use).
+
 ### 4. Create the schema and sample data
 
 ```bash
@@ -226,6 +250,10 @@ The rule: pick one mode. `npm run dev` for development, or
 Every route requires a session. Unauthenticated API calls get `401` with
 `{"error":"Unauthorized"}`; unauthenticated page visits redirect to `/login`
 with a `callbackUrl`.
+
+A write the caller's role doesn't allow returns `403` with
+`{"error":"Forbidden","reason":"..."}`. The role check runs before the body is
+validated.
 
 | Method | Path | Notes |
 | --- | --- | --- |

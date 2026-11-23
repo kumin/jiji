@@ -1090,3 +1090,46 @@ describe("dashboard permissions", () => {
     assert.equal((await member.request(`/api/dashboards/${targetId}`)).status, 200);
   });
 });
+
+describe("ADMIN_EMAILS promotion", () => {
+  // Listed in the jiji-test server's ADMIN_EMAILS (.claude/launch.json).
+  const ADMIN_EMAIL = `${TEST_EMAIL_PREFIX}admin@example.com`;
+
+  async function roleOf(id: string) {
+    const { prisma } = await import("@/lib/prisma");
+    return (await prisma.user.findUnique({ where: { id }, select: { role: true } }))?.role;
+  }
+
+  it("makes a listed email an Admin on first and later sign-ins", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const client = createClient();
+    await client.devLogin("E2E Listed Admin", ADMIN_EMAIL);
+    const id = (await client.session())?.user?.id;
+    assert.ok(id);
+    assert.equal(await roleOf(id), "ADMIN", "first sign-in");
+
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.update({ where: { id }, data: { role: "MEMBER" } });
+    await createClient().devLogin("E2E Listed Admin", ADMIN_EMAIL);
+    assert.equal(await roleOf(id), "ADMIN", "signing in again re-promotes");
+  });
+
+  it("leaves other users' roles alone", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const fresh = createClient();
+    await fresh.devLogin("E2E Unlisted", `${unique()}@example.com`);
+    const freshId = (await fresh.session())?.user?.id;
+    assert.ok(freshId);
+    assert.equal(await roleOf(freshId), "MEMBER", "a new unlisted user is a Member");
+
+    const viewer = createClient();
+    const email = `${unique()}@example.com`;
+    await viewer.devLogin("E2E Existing Viewer", email);
+    const viewerId = (await viewer.session())?.user?.id;
+    assert.ok(viewerId);
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.update({ where: { id: viewerId }, data: { role: "VIEWER" } });
+    await createClient().devLogin("E2E Existing Viewer", email);
+    assert.equal(await roleOf(viewerId), "VIEWER", "an existing user keeps their role");
+  });
+});

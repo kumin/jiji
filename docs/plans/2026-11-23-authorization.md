@@ -140,7 +140,7 @@ Conventions used below:
   - Document `ADMIN_EMAILS` in `.env.example` and `README.md`. The user's real `.env` gets their own Gmail address, but only with their OK.
 - Verify: restart `jiji-test`, run `npm test`, then `npm run check`.
 - Covers: AC 2
-- [ ] Done
+- [x] Done (the real .env is left alone until Task 12)
 
 ## Task 8: Add PATCH /api/users/{id} to change a role
 - Files:

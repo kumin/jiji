@@ -5,7 +5,7 @@
       "name": "jiji-test",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "env": { "AUTH_DEV_LOGIN": "true" },
+      "env": { "AUTH_DEV_LOGIN": "true", "ADMIN_EMAILS": "e2e-admin@example.com" },
       "port": 3000
     },
     {
