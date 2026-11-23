@@ -1041,3 +1041,52 @@ describe("issue permissions", () => {
     }
   });
 });
+
+describe("dashboard permissions", () => {
+  const member = createClient();
+  const viewer = createClient();
+  let targetId = "";
+  let targetName = "";
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(member, "E2E Dash Member");
+    await signInAs(viewer, "E2E Dash Viewer", "VIEWER");
+    const { prisma } = await import("@/lib/prisma");
+    targetName = `${TEST_DASHBOARD_PREFIX}${process.pid}-dashperm-${Date.now()}`;
+    targetId = (await prisma.dashboard.create({ data: { name: targetName } })).id;
+  });
+
+  it("refuses dashboard writes from Members and Viewers and changes nothing", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [label, client] of [["member", member], ["viewer", viewer]] as const) {
+      const writes: [string, string, string | undefined][] = [
+        ["POST", "/api/dashboards", JSON.stringify({ name: `${targetName}-${label}-new` })],
+        ["PATCH", `/api/dashboards/${targetId}`, JSON.stringify({ name: `${targetName}-${label}` })],
+        ["DELETE", `/api/dashboards/${targetId}`, undefined],
+      ];
+      for (const [method, path, body] of writes) {
+        const response = await client.request(path, { method, body });
+        assert.equal(response.status, 403, `${label} ${method}`);
+        const json = (await response.json()) as { error: string; reason: string };
+        assert.equal(json.error, "Forbidden");
+        assert.equal(json.reason, "Only Admins can manage dashboards");
+      }
+    }
+
+    const { prisma } = await import("@/lib/prisma");
+    const target = await prisma.dashboard.findUnique({ where: { id: targetId } });
+    assert.equal(target?.name, targetName, "the dashboard must be unchanged");
+    assert.equal(
+      await prisma.dashboard.count({ where: { name: { startsWith: `${targetName}-` } } }),
+      0,
+      "no dashboard may be created",
+    );
+  });
+
+  it("still lets Members and Viewers list dashboards", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    assert.equal((await viewer.request("/api/dashboards")).status, 200);
+    assert.equal((await member.request(`/api/dashboards/${targetId}`)).status, 200);
+  });
+});

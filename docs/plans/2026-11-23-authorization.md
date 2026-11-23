@@ -112,7 +112,7 @@ Conventions used below:
 - Change: replace the `currentUserId()` check with `authorize("dashboard:manage")` before parsing.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 7, 10
-- [ ] Done
+- [x] Done
 
 ## Task 7: Promote ADMIN_EMAILS users to Admin on sign-in
 - Files:
