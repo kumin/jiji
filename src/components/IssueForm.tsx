@@ -20,11 +20,13 @@ type Props = {
   issue?: IssueDTO;
   /** Preselected dashboard for a new issue (the one being viewed). Ignored when editing. */
   defaultDashboardId?: string;
+  /** Called after an edit is saved; the form refreshes in place instead of navigating. */
+  onSaved?: () => void;
 };
 
 type Errors = Record<string, string>;
 
-export function IssueForm({ users, dashboards, issue, defaultDashboardId }: Props) {
+export function IssueForm({ users, dashboards, issue, defaultDashboardId, onSaved }: Props) {
   const router = useRouter();
   const editing = Boolean(issue);
 
@@ -79,8 +81,17 @@ export function IssueForm({ users, dashboards, issue, defaultDashboardId }: Prop
       }
 
       const data = await response.json();
-      router.push(`/issues/${data.issue.id}`);
-      router.refresh();
+      if (editing) {
+        // Stay where we are (the full page or the popup) and re-render with the
+        // saved values; pushing /issues/<id> would stack a popup history entry.
+        setSaving(false);
+        router.refresh();
+        onSaved?.();
+        return;
+      }
+      // A full load, not router.push: a soft navigation to /issues/<id> is
+      // intercepted by the @modal route and would show a popup over this form.
+      window.location.assign(`/issues/${data.issue.id}?dashboard=${data.issue.dashboard.id}`);
     } catch {
       setFormError("Could not reach the server. Is the database running?");
       setSaving(false);

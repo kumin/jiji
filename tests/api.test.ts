@@ -784,6 +784,31 @@ describe("dashboards", () => {
     assert.equal(canonical.status, 200);
   });
 
+  it("offers status and assignee dropdowns on the issue page", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboard = await createDashboard();
+    const issue = await createIssueIn(dashboard.id);
+    // Move to IN_PROGRESS, whose allowed moves are TODO and IN_REVIEW (not DONE).
+    const step = await client.request(`/api/issues/${issue.id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status: "IN_PROGRESS" }),
+    });
+    assert.equal(step.status, 200);
+
+    const html = await (await client.get(`/issues/${issue.id}?dashboard=${dashboard.id}`)).text();
+    const select = (label: string) =>
+      html.match(new RegExp(`<select[^>]*aria-label="${label}"[^>]*>([\\s\\S]*?)</select>`))?.[1];
+
+    const status = select("Status");
+    assert.ok(status, "expected a Status dropdown");
+    const values = [...status.matchAll(/value="([A-Z_]+)"/g)].map((m) => m[1]).sort();
+    assert.deepEqual(values, ["IN_PROGRESS", "IN_REVIEW", "TODO"], "current status plus allowed moves only");
+
+    const assignee = select("Assignee");
+    assert.ok(assignee, "expected an Assignee dropdown");
+    assert.match(assignee, /Unassigned/);
+  });
+
   it("404s a page for an unknown dashboard", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     for (const path of ["/", "/board"]) {

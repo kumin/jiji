@@ -163,7 +163,7 @@ export function Board({ issues, now }: { issues: IssueDTO[]; now: string }) {
                           <PriorityGlyph priority={issue.priority} />
                         </span>
                         <Link
-                          href={`/issues/${issue.id}`}
+                          href={`/issues/${issue.id}?dashboard=${issue.dashboard.id}`}
                           className="text-sm font-medium text-slate-900 hover:text-blue-700 hover:underline"
                         >
                           {issue.title}

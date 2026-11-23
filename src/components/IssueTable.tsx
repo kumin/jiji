@@ -43,7 +43,7 @@ export function IssueTable({ issues }: { issues: IssueDTO[] }) {
                 </td>
                 <td className="px-3 py-2">
                   <Link
-                    href={`/issues/${issue.id}`}
+                    href={`/issues/${issue.id}?dashboard=${issue.dashboard.id}`}
                     className="font-medium text-slate-900 hover:text-blue-700 hover:underline"
                   >
                     {issue.title}

@@ -18,8 +18,11 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  /** The @modal slot: an issue popup over the list or board, otherwise nothing. */
+  modal: React.ReactNode;
 }>) {
   const session = await auth();
   const dashboards = session?.user ? await listDashboards() : [];
@@ -70,6 +73,7 @@ export default async function RootLayout({
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+        {modal}
       </body>
     </html>
   );

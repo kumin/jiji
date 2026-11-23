@@ -30,7 +30,12 @@ export function EditIssueSection({
 
   return (
     <div className="space-y-3">
-      <IssueForm users={users} dashboards={dashboards} issue={issue} />
+      <IssueForm
+        users={users}
+        dashboards={dashboards}
+        issue={issue}
+        onSaved={() => setEditing(false)}
+      />
       <button
         type="button"
         onClick={() => setEditing(false)}
