@@ -1235,3 +1235,70 @@ describe("changing roles", () => {
     assert.equal(response.status, 401);
   });
 });
+
+describe("role-aware pages", () => {
+  const viewer = createClient();
+  const memberA = createClient();
+  const memberB = createClient();
+  let ownIssueId = ""; // reported by Member A
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(viewer, "E2E Page Viewer", "VIEWER");
+    const memberAId = await signInAs(memberA, "E2E Page Member A");
+    await signInAs(memberB, "E2E Page Member B");
+    const { prisma } = await import("@/lib/prisma");
+    const issue = await prisma.issue.create({
+      data: { title: "page permissions", dashboardId: testDashboardId, reporterId: memberAId },
+    });
+    ownIssueId = issue.id;
+    created.push(issue.id);
+  });
+
+  const html = async (client: Client, path: string) => {
+    const response = await client.get(path);
+    assert.equal(response.status, 200, path);
+    return response.text();
+  };
+  const issuePath = () => `/issues/${ownIssueId}?dashboard=${testDashboardId}`;
+  const DELETE_BUTTON = />Delete</;
+  const EDIT_BUTTON = />Edit issue</;
+  const disabledSelect = (label: string) => new RegExp(`<select[^>]*aria-label="${label}"[^>]*\\sdisabled=""`);
+  const anySelect = (label: string) => new RegExp(`<select[^>]*aria-label="${label}"`);
+
+  it("shows a Viewer no write controls", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const list = await html(viewer, `/?dashboard=${testDashboardId}`);
+    assert.doesNotMatch(list, /href="\/issues\/new/, "no Create issue link");
+
+    const page = await html(viewer, issuePath());
+    assert.doesNotMatch(page, DELETE_BUTTON);
+    assert.doesNotMatch(page, EDIT_BUTTON);
+    assert.match(page, disabledSelect("Status"));
+    assert.match(page, disabledSelect("Assignee"));
+
+    const board = await html(viewer, `/board?dashboard=${testDashboardId}`);
+    assert.match(board, /page permissions/, "the board still shows the card");
+    assert.doesNotMatch(board, /draggable="true"/);
+
+    assert.equal((await viewer.get("/issues/new")).status, 404);
+  });
+
+  it("hides Delete from a Member on someone else's issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const page = await html(memberB, issuePath());
+    assert.doesNotMatch(page, DELETE_BUTTON);
+    assert.match(page, EDIT_BUTTON);
+    assert.match(page, anySelect("Status"));
+    assert.doesNotMatch(page, disabledSelect("Status"));
+
+    const board = await html(memberB, `/board?dashboard=${testDashboardId}`);
+    assert.match(board, /draggable="true"/);
+    assert.match(await html(memberB, `/?dashboard=${testDashboardId}`), /href="\/issues\/new/);
+  });
+
+  it("shows Delete to the Member who reported the issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    assert.match(await html(memberA, issuePath()), DELETE_BUTTON);
+  });
+});

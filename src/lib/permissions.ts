@@ -43,6 +43,7 @@ export function denyReason(
   }
 }
 
-export function can(actor: Actor, action: Action, issue?: IssueOwnership): boolean {
-  return denyReason(actor, action, issue) === null;
+/** Whether `actor` may perform `action`. No actor (signed out) may do nothing. */
+export function can(actor: Actor | null, action: Action, issue?: IssueOwnership): boolean {
+  return actor !== null && denyReason(actor, action, issue) === null;
 }

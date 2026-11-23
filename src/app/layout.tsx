@@ -7,7 +7,9 @@ import { DashboardSwitcher } from "@/components/DashboardSwitcher";
 import { NavLinks } from "@/components/NavLinks";
 import { UserMenu } from "@/components/UserMenu";
 import { auth } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { listDashboards } from "@/lib/queries";
+import { currentUser } from "@/lib/require-user";
 
 import "./globals.css";
 
@@ -25,7 +27,9 @@ export default async function RootLayout({
   modal: React.ReactNode;
 }>) {
   const session = await auth();
-  const dashboards = session?.user ? await listDashboards() : [];
+  const [dashboards, actor] = session?.user
+    ? await Promise.all([listDashboards(), currentUser()])
+    : [[], null];
 
   return (
     <html lang="en">
@@ -57,9 +61,11 @@ export default async function RootLayout({
                       image: session.user.image ?? null,
                     }}
                   />
-                  <Suspense>
-                    <CreateIssueLink className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700" />
-                  </Suspense>
+                  {can(actor, "issue:create") ? (
+                    <Suspense>
+                      <CreateIssueLink className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700" />
+                    </Suspense>
+                  ) : null}
                 </>
               ) : (
                 <Link

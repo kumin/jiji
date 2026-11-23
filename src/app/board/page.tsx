@@ -1,6 +1,8 @@
 import { Board } from "@/components/Board";
 import { NoDashboards } from "@/components/NoDashboards";
+import { can } from "@/lib/permissions";
 import { listIssues, resolveDashboard } from "@/lib/queries";
+import { currentUser } from "@/lib/require-user";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,11 @@ export default async function BoardPage({ searchParams }: PageProps) {
     );
   }
 
-  const issues = await listIssues({ dashboardId: dashboard.id });
+  const [issues, actor] = await Promise.all([
+    listIssues({ dashboardId: dashboard.id }),
+    currentUser(),
+  ]);
+  const canEdit = can(actor, "issue:edit");
 
   return (
     <div className="space-y-4">
@@ -28,12 +34,14 @@ export default async function BoardPage({ searchParams }: PageProps) {
           {dashboard.name} <span className="font-normal text-slate-400">/ Board</span>
         </h1>
         <p className="text-sm text-slate-500">
-          Drag a card to move it. Columns the workflow forbids are disabled while dragging.
+          {canEdit
+            ? "Drag a card to move it. Columns the workflow forbids are disabled while dragging."
+            : "Read only: Viewers can't move cards."}
         </p>
       </div>
       {/* One render timestamp for the whole tree, so the client's hydration of the
           due-date labels matches what the server produced. */}
-      <Board issues={issues} now={new Date().toISOString()} />
+      <Board issues={issues} now={new Date().toISOString()} canEdit={canEdit} />
     </div>
   );
 }

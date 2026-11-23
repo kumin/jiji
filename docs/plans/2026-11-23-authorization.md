@@ -193,7 +193,7 @@ Conventions used below:
   - `/issues/new` calls `notFound()` when the actor can't create issues.
 - Verify: `npm test` and `npm run check`. In the browser, check the list, board, popup and full page as Viewer and Member with screenshots.
 - Covers: AC 11 (issues part)
-- [ ] Done
+- [x] Done (can() also accepts a null actor and returns false; after next typegen with the server running, clear .next or the popup fails with initialTree is not iterable)
 
 ## Task 10: Gate the dashboards page by role
 - Files: `src/app/dashboards/page.tsx`, `src/components/DashboardManager.tsx`, `tests/api.test.ts`.

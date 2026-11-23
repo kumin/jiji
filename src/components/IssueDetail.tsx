@@ -7,6 +7,7 @@ import { EditIssueSection } from "@/components/EditIssueSection";
 import { PriorityLabel } from "@/components/Priority";
 import { StatusSelect } from "@/components/StatusSelect";
 import { describeDue, formatDate } from "@/lib/dates";
+import { type Actor, can } from "@/lib/permissions";
 import type { DashboardDTO, IssueDTO, UserDTO } from "@/lib/types";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -26,15 +27,21 @@ export function IssueDetail({
   issue,
   users,
   dashboards,
+  actor,
   titleId,
 }: {
   issue: IssueDTO;
   users: UserDTO[];
   dashboards: DashboardDTO[];
+  /** The signed-in user; controls they may not use are hidden or disabled. */
+  actor: Actor | null;
   /** id for the title, so a dialog can point aria-labelledby at it. */
   titleId?: string;
 }) {
   const due = describeDue(issue.dueDate, issue.status);
+  // The API enforces these too; hiding them just avoids offering a dead end.
+  const canEdit = can(actor, "issue:edit");
+  const canDelete = can(actor, "issue:delete", { reporterId: issue.reporter?.id ?? null });
 
   return (
     <div className="space-y-6">
@@ -58,19 +65,21 @@ export function IssueDetail({
             )}
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
-            <h2 className="mb-4 text-sm font-semibold text-slate-700">Edit</h2>
-            <EditIssueSection issue={issue} users={users} dashboards={dashboards} />
-          </section>
+          {canEdit ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-5">
+              <h2 className="mb-4 text-sm font-semibold text-slate-700">Edit</h2>
+              <EditIssueSection issue={issue} users={users} dashboards={dashboards} />
+            </section>
+          ) : null}
         </div>
 
         <aside className="space-y-5">
           <dl className="space-y-4 rounded-lg border border-slate-200 bg-white p-5">
             <Field label="Status">
-              <StatusSelect issue={issue} />
+              <StatusSelect issue={issue} disabled={!canEdit} />
             </Field>
             <Field label="Assignee">
-              <AssigneeSelect issue={issue} users={users} />
+              <AssigneeSelect issue={issue} users={users} disabled={!canEdit} />
             </Field>
             <Field label="Dashboard">
               <Link
@@ -100,13 +109,15 @@ export function IssueDetail({
             <Field label="Updated">{formatDate(issue.updatedAt)}</Field>
           </dl>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <DeleteIssueButton
-              id={issue.id}
-              issueKey={issue.key}
-              dashboardId={issue.dashboard.id}
-            />
-          </div>
+          {canDelete ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <DeleteIssueButton
+                id={issue.id}
+                issueKey={issue.key}
+                dashboardId={issue.dashboard.id}
+              />
+            </div>
+          ) : null}
         </aside>
       </div>
     </div>
