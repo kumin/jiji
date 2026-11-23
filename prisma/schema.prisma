@@ -29,16 +29,24 @@ enum IssuePriority {
   HIGHEST
 }
 
+/// Global role: what a user may change. See src/lib/permissions.ts.
+enum Role {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
 model User {
-  id String @id @default(cuid())
-  name String?
-  email String  @unique
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
   /// Set by the auth adapter from the Google profile picture.
   emailVerified DateTime?
   image         String?
   /// Hex colour for the avatar chip, derived from the id when the row is created.
-  color          String  @default("#6366f1")
-  createdAt      DateTime @default(now())
+  color         String    @default("#6366f1")
+  role          Role      @default(MEMBER)
+  createdAt     DateTime  @default(now())
 
   accounts Account[]
   sessions Session[]
@@ -48,7 +56,7 @@ model User {
 }
 
 model Issue {
-  id String @id @default(cuid())
+  id     String @id @default(cuid())
   /// Human-facing ticket number, rendered as JIJI-1, JIJI-2, ...
   number Int    @unique @default(autoincrement())
   title  String

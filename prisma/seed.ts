@@ -17,7 +17,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
  * are created by Auth.js on first Google login and join these.
  */
 const USERS = [
-  { name: "Ada Lovelace", email: "ada@example.com", color: "#6366f1" },
+  { name: "Ada Lovelace", email: "ada@example.com", color: "#6366f1", role: "ADMIN" as const },
   { name: "Grace Hopper", email: "grace@example.com", color: "#ec4899" },
   { name: "Alan Turing", email: "alan@example.com", color: "#14b8a6" },
   { name: "Katherine Johnson", email: "katherine@example.com", color: "#f59e0b" },

@@ -10,8 +10,8 @@ Conventions used below:
 - Commits use the repo identity, with no AI attribution trailers.
 
 ## Task 0: Baseline
-- [ ] `git switch -c feat/authorization` from an up-to-date `main`. Commit the approved spec as the first commit.
-- [ ] Start the `jiji-test` preview and run `npm run check`. Record the pass, fail and skip counts; expect 117 passing and 0 skipped.
+- [x] `git switch -c feat/authorization` from an up-to-date `main`. Commit the approved spec as the first commit.
+- [x] Start the `jiji-test` preview and run `npm run check`. Record the pass, fail and skip counts; expect 117 passing and 0 skipped.
 
 ## Task 1: Add the Role enum and User.role
 - Files: `prisma/schema.prisma`, `prisma/migrations/<ts>_user_roles/migration.sql` (generated), `prisma/seed.ts`, `src/lib/types.ts`, and the `toUserDTO` helper.
@@ -27,7 +27,7 @@ Conventions used below:
   - `podman exec jira-postgres psql -U jira -d jira -c 'select role, count(*) from "User" group by role'` shows only MEMBER rows (before re-seeding).
   - `npm run check` is green.
 - Covers: AC 1
-- [ ] Done
+- [x] Done (note: Prisma 7's `migrate dev` doesn't regenerate the client, so run `npx prisma generate` after it; `UserMenu` takes `Omit<UserDTO, "role">` since the session has no role)
 
 ## Task 2: Write the `can()` permission table
 - Files: `src/lib/permissions.ts` (new), `tests/permissions.test.ts` (new).
