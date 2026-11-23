@@ -101,7 +101,7 @@ Conventions used below:
     - Then checks `denyReason(actor, "issue:delete", issue)` and returns 403 with that reason if it's denied.
 - Verify: `npm test` with the new tests failing before the change and passing after it; then `npm run check`.
 - Covers: AC 3, 4, 5, 6, 10
-- [ ] Done
+- [x] Done (the dev server caches the Prisma client, so restart it after a migration)
 
 ## Task 6: Enforce permissions on the dashboard endpoints
 - Files:

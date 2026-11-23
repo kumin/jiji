@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { currentUserId } from "@/lib/require-user";
+import { authorize, forbidden } from "@/lib/require-user";
+import { denyReason } from "@/lib/permissions";
 import { resolveAssignee } from "@/lib/assignee";
 import {
   DASHBOARD_NOT_FOUND_RESPONSE,
@@ -24,9 +25,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("issue:edit");
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await request.json().catch(() => null);
@@ -87,16 +87,23 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(_request: Request, { params }: RouteContext) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Anyone who may edit may delete *something*, so this refuses Viewers before
+  // the lookup; whether this particular issue is theirs is checked below.
+  const auth = await authorize("issue:edit");
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
 
-  const existing = await prisma.issue.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.issue.findUnique({
+    where: { id },
+    select: { id: true, reporterId: true },
+  });
   if (!existing) {
     return NextResponse.json({ error: "Issue not found" }, { status: 404 });
   }
+
+  const reason = denyReason(auth.actor, "issue:delete", existing);
+  if (reason) return forbidden(reason);
 
   await prisma.issue.delete({ where: { id } });
 

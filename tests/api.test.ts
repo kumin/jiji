@@ -871,3 +871,173 @@ describe("dashboards", () => {
     }
   });
 });
+
+describe("issue permissions", () => {
+  const admin = createClient();
+  const memberA = createClient();
+  const memberB = createClient();
+  const viewer = createClient();
+  let memberAId = "";
+  let otherDashboardId = "";
+
+  type IssueBody = { issue: { id: string; title: string; status: string; dashboard: { id: string } } };
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E Perm Admin", "ADMIN");
+    memberAId = await signInAs(memberA, "E2E Perm Member A");
+    await signInAs(memberB, "E2E Perm Member B");
+    await signInAs(viewer, "E2E Perm Viewer", "VIEWER");
+    const { prisma } = await import("@/lib/prisma");
+    const other = await prisma.dashboard.create({
+      data: { name: `${TEST_DASHBOARD_PREFIX}${process.pid}-perm-${Date.now()}` },
+    });
+    otherDashboardId = other.id;
+  });
+
+  /** An issue reported by `reporterId` (null for none), made through Prisma. */
+  async function seedIssue(reporterId: string | null, title = "permission target") {
+    const { prisma } = await import("@/lib/prisma");
+    const issue = await prisma.issue.create({
+      data: { title, dashboardId: testDashboardId, reporterId },
+    });
+    created.push(issue.id);
+    return issue.id;
+  }
+
+  async function readIssue(id: string) {
+    const response = await admin.request(`/api/issues/${id}`);
+    return response.status === 200 ? ((await response.json()) as IssueBody).issue : null;
+  }
+
+  async function assertForbidden(response: Response, label: string) {
+    assert.equal(response.status, 403, label);
+    const body = (await response.json()) as { error: string; reason: string };
+    assert.equal(body.error, "Forbidden", label);
+    assert.ok(body.reason, `${label}: expected a reason`);
+  }
+
+  it("refuses every issue write from a Viewer and changes nothing", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId, "viewer target");
+
+    await assertForbidden(
+      await viewer.request("/api/issues", {
+        method: "POST",
+        body: JSON.stringify({ dashboardId: testDashboardId, title: "viewer create" }),
+      }),
+      "POST",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: "viewer edit" }),
+      }),
+      "PATCH",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}/transition`, {
+        method: "POST",
+        body: JSON.stringify({ status: "IN_PROGRESS" }),
+      }),
+      "transition",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, { method: "DELETE" }),
+      "DELETE",
+    );
+
+    const after = await readIssue(id);
+    assert.ok(after, "the issue must still exist");
+    assert.equal(after.title, "viewer target");
+    assert.equal(after.status, "TODO");
+
+    const { prisma } = await import("@/lib/prisma");
+    assert.equal(await prisma.issue.count({ where: { title: "viewer create" } }), 0);
+  });
+
+  it("checks the role before validating the body", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, { method: "PATCH", body: "{}" }),
+      "PATCH {}",
+    );
+    await assertForbidden(
+      await viewer.request("/api/issues", { method: "POST", body: "{}" }),
+      "POST {}",
+    );
+  });
+
+  it("lets a Viewer read issues", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+    assert.equal((await viewer.request("/api/issues")).status, 200);
+    assert.equal((await viewer.request(`/api/issues/${id}`)).status, 200);
+  });
+
+  it("lets a Member edit, assign, move and transition someone else's issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+
+    const patch = await memberB.request(`/api/issues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: "edited by B", assigneeId: memberAId, dashboardId: otherDashboardId }),
+    });
+    assert.equal(patch.status, 200);
+    const patched = ((await patch.json()) as IssueBody).issue;
+    assert.equal(patched.title, "edited by B");
+    assert.equal(patched.dashboard.id, otherDashboardId);
+
+    const move = await memberB.request(`/api/issues/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status: "IN_PROGRESS" }),
+    });
+    assert.equal(move.status, 200);
+  });
+
+  it("lets a Member delete only issues they reported", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const othersIssue = await seedIssue(memberAId, "A's issue");
+    const orphan = await seedIssue(null, "no reporter");
+
+    await assertForbidden(
+      await memberB.request(`/api/issues/${othersIssue}`, { method: "DELETE" }),
+      "B deletes A's issue",
+    );
+    await assertForbidden(
+      await memberB.request(`/api/issues/${orphan}`, { method: "DELETE" }),
+      "B deletes an issue with no reporter",
+    );
+    assert.ok(await readIssue(othersIssue), "A's issue must still exist");
+    assert.ok(await readIssue(orphan), "the orphan must still exist");
+
+    const own = await memberA.request(`/api/issues/${othersIssue}`, { method: "DELETE" });
+    assert.equal(own.status, 204);
+  });
+
+  it("lets an Admin delete any issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const othersIssue = await seedIssue(memberAId);
+    const orphan = await seedIssue(null);
+    assert.equal((await admin.request(`/api/issues/${othersIssue}`, { method: "DELETE" })).status, 204);
+    assert.equal((await admin.request(`/api/issues/${orphan}`, { method: "DELETE" })).status, 204);
+  });
+
+  it("still returns 401, not 403, without a session", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const anon = createClient();
+    for (const [method, path] of [
+      ["POST", "/api/issues"],
+      ["PATCH", "/api/issues/whatever"],
+      ["POST", "/api/issues/whatever/transition"],
+      ["DELETE", "/api/issues/whatever"],
+    ] as const) {
+      const response = await anon.request(path, {
+        method,
+        body: method === "DELETE" ? undefined : "{}",
+      });
+      assert.equal(response.status, 401, `${method} ${path}`);
+    }
+  });
+});
