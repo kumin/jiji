@@ -9,6 +9,7 @@ import {
   issueCreateSchema,
   issuePatchSchema,
   transitionSchema,
+  userRolePatchSchema,
 } from "@/lib/validation";
 
 describe("issueCreateSchema", () => {
@@ -220,5 +221,20 @@ describe("dashboardPatchSchema", () => {
   it("validates the fields it does receive", () => {
     assert.equal(dashboardPatchSchema.safeParse({ name: "" }).success, false);
     assert.equal(dashboardPatchSchema.safeParse({ description: "a".repeat(501) }).success, false);
+  });
+});
+
+describe("userRolePatchSchema", () => {
+  it("accepts each role", () => {
+    for (const role of ["ADMIN", "MEMBER", "VIEWER"]) {
+      assert.equal(userRolePatchSchema.safeParse({ role }).success, true, role);
+    }
+  });
+
+  it("rejects an unknown or missing role", () => {
+    const unknown = userRolePatchSchema.safeParse({ role: "OWNER" });
+    assert.equal(unknown.success, false);
+    assert.ok(fieldErrors(unknown.error!).role);
+    assert.equal(userRolePatchSchema.safeParse({}).success, false);
   });
 });

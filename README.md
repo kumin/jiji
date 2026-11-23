@@ -263,7 +263,8 @@ validated.
 | `PATCH` | `/api/issues/:id` | Partial update; omitted fields are left untouched |
 | `DELETE` | `/api/issues/:id` | `204` on success |
 | `POST` | `/api/issues/:id/transition` | Workflow-guarded status change; `409` if the move is illegal |
-| `GET` | `/api/users` | Assignee options |
+| `GET` | `/api/users` | Every user, with their `role` |
+| `PATCH` | `/api/users/:id` | `{ "role": "ADMIN" \| "MEMBER" \| "VIEWER" }`. Admins only; `409` when it would leave no Admin |
 | `*` | `/api/auth/*` | Auth.js endpoints |
 
 Validation failures return `400` with a `fields` map of `{ field: "message" }`.

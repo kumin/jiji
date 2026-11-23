@@ -1133,3 +1133,105 @@ describe("ADMIN_EMAILS promotion", () => {
     assert.equal(await roleOf(viewerId), "VIEWER", "an existing user keeps their role");
   });
 });
+
+describe("changing roles", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+  let adminId = "";
+  let memberId = "";
+  /** Real Admins demoted for the last-Admin tests, restored afterwards. */
+  let demoted: string[] = [];
+
+  type UserBody = { user: { id: string; role: string; email: string } };
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    adminId = await signInAs(admin, "E2E Role Admin", "ADMIN");
+    memberId = await signInAs(member, "E2E Role Member");
+    await signInAs(viewer, "E2E Role Viewer", "VIEWER");
+  });
+
+  after(async () => {
+    if (!demoted.length) return;
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.updateMany({ where: { id: { in: demoted } }, data: { role: "ADMIN" } });
+  });
+
+  const patchRole = (client: Client, id: string, role: unknown) =>
+    client.request(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) });
+
+  it("lets an Admin change a role, effective on the user's next request", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const target = createClient();
+    const targetId = await signInAs(target, "E2E Role Target");
+
+    const response = await patchRole(admin, targetId, "VIEWER");
+    assert.equal(response.status, 200);
+    const { user } = (await response.json()) as UserBody;
+    assert.equal(user.id, targetId);
+    assert.equal(user.role, "VIEWER");
+
+    // Same session cookie as before the change: no new sign-in.
+    const write = await target.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "after demotion" }),
+    });
+    assert.equal(write.status, 403);
+
+    const list = (await (await viewer.request("/api/users")).json()) as {
+      users: { id: string; role: string }[];
+    };
+    assert.equal(list.users.find((u) => u.id === targetId)?.role, "VIEWER", "GET /api/users has role");
+  });
+
+  it("validates the role and the user", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const bad = await patchRole(admin, memberId, "OWNER");
+    assert.equal(bad.status, 400);
+    assert.ok(((await bad.json()) as { fields: Record<string, string> }).fields.role);
+
+    const missing = await patchRole(admin, "does-not-exist", "MEMBER");
+    assert.equal(missing.status, 404);
+  });
+
+  it("refuses Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      const response = await patchRole(client, memberId, "ADMIN");
+      assert.equal(response.status, 403);
+      assert.equal(((await response.json()) as { reason: string }).reason, "Only Admins can change roles");
+    }
+    const { prisma } = await import("@/lib/prisma");
+    const row = await prisma.user.findUnique({ where: { id: memberId }, select: { role: true } });
+    assert.equal(row?.role, "MEMBER");
+  });
+
+  it("never demotes the last Admin", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { prisma } = await import("@/lib/prisma");
+    const others = await prisma.user.findMany({
+      where: { role: "ADMIN", id: { not: adminId } },
+      select: { id: true },
+    });
+    demoted = others.map((user) => user.id);
+    await prisma.user.updateMany({ where: { id: { in: demoted } }, data: { role: "MEMBER" } });
+
+    for (const role of ["MEMBER", "VIEWER"]) {
+      const response = await patchRole(admin, adminId, role);
+      assert.equal(response.status, 409, `self-demotion to ${role}`);
+      assert.deepEqual(await response.json(), { error: "At least one Admin is required" });
+    }
+    assert.equal((await patchRole(admin, adminId, "ADMIN")).status, 200, "a no-op is fine");
+
+    // With a second Admin, demoting one is allowed again.
+    assert.equal((await patchRole(admin, memberId, "ADMIN")).status, 200);
+    assert.equal((await patchRole(admin, memberId, "MEMBER")).status, 200);
+  });
+
+  it("returns 401 without a session", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const response = await patchRole(createClient(), "whatever", "ADMIN");
+    assert.equal(response.status, 401);
+  });
+});

@@ -164,7 +164,7 @@ Conventions used below:
   - Otherwise it updates and returns `{ user: toUserDTO(row) }`.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 8, 9
-- [ ] Done
+- [x] Done (the check runs in a Serializable transaction; a serialization conflict (P2034) also returns the 409)
 
 ## Task 9: Gate the issue UI by role
 - Files:

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { IssuePriority, IssueStatus } from "@/generated/prisma/enums";
+import { IssuePriority, IssueStatus, Role } from "@/generated/prisma/enums";
 
 /** `new Date("2026-01-01")` is UTC but `new Date("01/01/2026")` is local. Pin the
  *  interpretation so a due date never shifts a day because of the viewer's TZ. */
@@ -98,3 +98,8 @@ export function fieldErrors(error: z.ZodError): Record<string, string> {
   }
   return result;
 }
+
+/** Body of PATCH /api/users/{id}: the only field an Admin may change is the role. */
+export const userRolePatchSchema = z.object({
+  role: z.enum(Role, "Role must be ADMIN, MEMBER or VIEWER"),
+});
