@@ -201,7 +201,7 @@ Conventions used below:
 - Change: the page passes `canManage = can(actor,"dashboard:manage")`, and `DashboardManager` hides its create form and per-row Rename and Delete when `canManage` is false.
 - Verify: `npm test`, `npm run check`, and a browser check as Member and Admin.
 - Covers: AC 11 (dashboards part)
-- [ ] Done
+- [x] Done (also NoDashboards: non-Admins see 'Ask an Admin to create one' instead of a link to controls they can't use)
 
 ## Task 11: Add the Users page and nav link
 - Files:

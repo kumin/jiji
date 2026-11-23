@@ -16,7 +16,7 @@ export default async function BoardPage({ searchParams }: PageProps) {
     return (
       <div className="space-y-4">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">Board</h1>
-        <NoDashboards />
+        <NoDashboards canManage={can(await currentUser(), "dashboard:manage")} />
       </div>
     );
   }

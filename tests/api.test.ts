@@ -1302,3 +1302,41 @@ describe("role-aware pages", () => {
     assert.match(await html(memberA, issuePath()), DELETE_BUTTON);
   });
 });
+
+describe("role-aware dashboards page", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E DashPage Admin", "ADMIN");
+    await signInAs(member, "E2E DashPage Member");
+    await signInAs(viewer, "E2E DashPage Viewer", "VIEWER");
+  });
+
+  const html = async (client: Client) => {
+    const response = await client.get("/dashboards");
+    assert.equal(response.status, 200);
+    return response.text();
+  };
+
+  it("lists dashboards without management controls for Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      const page = await html(client);
+      assert.match(page, /href="\/\?dashboard=default-dashboard"/, "the list is still shown");
+      assert.doesNotMatch(page, />Create dashboard</);
+      assert.doesNotMatch(page, />Rename</);
+      assert.doesNotMatch(page, />Delete</);
+    }
+  });
+
+  it("shows an Admin the create, rename and delete controls", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const page = await html(admin);
+    assert.match(page, />Create dashboard</);
+    assert.match(page, />Rename</);
+    assert.match(page, />Delete</);
+  });
+});

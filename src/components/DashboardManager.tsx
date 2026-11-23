@@ -35,18 +35,27 @@ async function send(url: string, method: string, payload?: unknown): Promise<str
   }
 }
 
-export function DashboardManager({ dashboards }: { dashboards: DashboardDTO[] }) {
+export function DashboardManager({
+  dashboards,
+  canManage,
+}: {
+  dashboards: DashboardDTO[];
+  /** Only Admins may create, rename or delete; everyone else gets the list. */
+  canManage: boolean;
+}) {
   return (
     <div className="space-y-4">
-      <CreateDashboardForm />
+      {canManage ? <CreateDashboardForm /> : null}
       {dashboards.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm text-slate-500">
-          No dashboards yet. Create one above.
+          {canManage
+            ? "No dashboards yet. Create one above."
+            : "No dashboards yet. Ask an Admin to create one."}
         </p>
       ) : (
         <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
           {dashboards.map((dashboard) => (
-            <DashboardRow key={dashboard.id} dashboard={dashboard} />
+            <DashboardRow key={dashboard.id} dashboard={dashboard} canManage={canManage} />
           ))}
         </ul>
       )}
@@ -105,7 +114,7 @@ function CreateDashboardForm() {
   );
 }
 
-function DashboardRow({ dashboard }: { dashboard: DashboardDTO }) {
+function DashboardRow({ dashboard, canManage }: { dashboard: DashboardDTO; canManage: boolean }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(dashboard.name);
@@ -202,24 +211,26 @@ function DashboardRow({ dashboard }: { dashboard: DashboardDTO }) {
           </p>
         )}
       </div>
-      <div className="flex flex-col items-end gap-1">
-        <div className="flex gap-1">
-          <button type="button" disabled={busy} className={secondaryButton} onClick={() => setEditing(true)}>
-            Rename
-          </button>
-          <button
-            type="button"
-            disabled={busy || hasIssues}
-            onClick={remove}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
-          >
-            Delete
-          </button>
+      {canManage ? (
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-1">
+            <button type="button" disabled={busy} className={secondaryButton} onClick={() => setEditing(true)}>
+              Rename
+            </button>
+            <button
+              type="button"
+              disabled={busy || hasIssues}
+              onClick={remove}
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+            >
+              Delete
+            </button>
+          </div>
+          {hasIssues && (
+            <p className="text-xs text-slate-500">Move or delete its {issueLabel} first</p>
+          )}
         </div>
-        {hasIssues && (
-          <p className="text-xs text-slate-500">Move or delete its {issueLabel} first</p>
-        )}
-      </div>
+      ) : null}
     </li>
   );
 }
