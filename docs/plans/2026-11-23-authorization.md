@@ -222,11 +222,12 @@ Conventions used below:
 - [x] Done
 
 ## Task 12: Final check
-- [ ] With `jiji-test` running, `npm run check` shows everything green and 0 skipped.
-- [ ] Stop the server and run `npm run build`; it passes. Restart `jiji-dev`.
-- [ ] Prove on a scratch database that the migration plus seed applies cleanly: `migrate deploy` then `db seed`, and Ada is ADMIN.
+- [x] With `jiji-test` running, `npm run check` shows everything green and 0 skipped.
+- [x] Stop the server and run `npm run build`; it passes. Restart `jiji-dev`.
+- [x] Prove on a scratch database that the migration plus seed applies cleanly: `migrate deploy` then `db seed`, and Ada is ADMIN.
 - [ ] Ask the user before adding their own email to `ADMIN_EMAILS` in `.env`, so they're an Admin locally.
 - Covers: AC 13
+- Result: 158 tests pass, 0 fail, 0 skipped; the build passes; on a scratch DB `migrate deploy` + `db seed` give Ada ADMIN and the other three MEMBER.
 
 ## Acceptance criteria coverage
 | AC | Task(s) |
