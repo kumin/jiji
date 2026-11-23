@@ -1340,3 +1340,49 @@ describe("role-aware dashboards page", () => {
     assert.match(page, />Delete</);
   });
 });
+
+describe("users page", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+  let memberId = "";
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E UsersPage Admin", "ADMIN");
+    memberId = await signInAs(member, "E2E UsersPage Member");
+    await signInAs(viewer, "E2E UsersPage Viewer", "VIEWER");
+  });
+
+  it("is a 404, with no nav link, for Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      assert.equal((await client.get("/users")).status, 404);
+      const home = await (await client.get("/")).text();
+      assert.doesNotMatch(home, /href="\/users"/);
+    }
+  });
+
+  it("lists every user with a role dropdown for an Admin", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await admin.get("/users");
+    assert.equal(response.status, 200);
+    const page = await response.text();
+    assert.match(page, /href="\/users"/, "the nav has a Users link");
+
+    const { prisma } = await import("@/lib/prisma");
+    const member = await prisma.user.findUniqueOrThrow({ where: { id: memberId } });
+    assert.match(page, new RegExp(member.email.replace(/[.]/g, "\\.")));
+    // The member's dropdown, with MEMBER selected.
+    const select = new RegExp(
+      `<select[^>]*aria-label="Role for ${member.name}"[^>]*>.*?</select>`,
+    ).exec(page);
+    assert.ok(select, "expected a role dropdown for the member");
+    assert.match(select[0], /<option value="MEMBER" selected="">/);
+    assert.equal(
+      [...page.matchAll(/aria-label="Role for /g)].length,
+      await prisma.user.count(),
+      "one dropdown per user",
+    );
+  });
+});

@@ -46,7 +46,7 @@ export default async function RootLayout({
               // Both read the URL's search params on the client.
               <Suspense>
                 <DashboardSwitcher dashboards={dashboards} />
-                <NavLinks />
+                <NavLinks showUsers={can(actor, "user:manageRoles")} />
               </Suspense>
             )}
             <div className="ml-auto flex items-center gap-2">

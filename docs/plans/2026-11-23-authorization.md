@@ -219,7 +219,7 @@ Conventions used below:
   - `NavLinks` takes `showUsers`, and `layout.tsx` passes `can(actor,"user:manageRoles")`.
 - Verify: `npm test`, `npm run check`. In the browser as Admin: change a role, see it persist after a reload, and try to demote the last Admin to see the error.
 - Covers: AC 12
-- [ ] Done
+- [x] Done
 
 ## Task 12: Final check
 - [ ] With `jiji-test` running, `npm run check` shows everything green and 0 skipped.
