@@ -21,7 +21,8 @@ Notes for whoever runs this plan:
 
 ## Task 0: Baseline
 - [ ] `git checkout -b feat/mcp-server`, then commit the approved spec and this plan (`docs: spec and plan for the MCP server`).
-- [ ] Start `AUTH_DEV_LOGIN=true npm run dev` in the background and run `npm run check`. Record the counts; expect 154 passing and 0 skipped.
+- [x] Start `AUTH_DEV_LOGIN=true npm run dev` in the background and run `npm run check`. Record the counts; expect 154 passing and 0 skipped.
+- Result: 154 pass, 0 fail, 0 skipped.
 
 ## Task 1: Move issue creation into issue-actions
 - Files:
@@ -45,7 +46,7 @@ Notes for whoever runs this plan:
   - **Order stays:** 401, then 403, then validation.
 - Verify: `npm test` shows everything green and 0 skipped. `npm run typecheck`.
 - Covers: AC 11
-- [ ] Done
+- [x] Done
 
 ## Task 2: Move issue update and delete into issue-actions
 - Files: `src/lib/issue-actions.ts`, `src/app/api/issues/[id]/route.ts`

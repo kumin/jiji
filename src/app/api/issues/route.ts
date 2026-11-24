@@ -2,17 +2,12 @@ import { NextResponse } from "next/server";
 
 import type { Prisma } from "@/generated/prisma/client";
 
-import { resolveAssignee } from "@/lib/assignee";
-import {
-  DASHBOARD_NOT_FOUND_RESPONSE,
-  isDashboardForeignKeyViolation,
-} from "@/lib/dashboard-service";
+import { createIssue, errorResponse } from "@/lib/issue-actions";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
 import { getStatusCounts } from "@/lib/queries";
-import { authorize } from "@/lib/require-user";
-import { fieldErrors, issueCreateSchema } from "@/lib/validation";
+import { currentUser, UNAUTHORIZED_RESPONSE } from "@/lib/require-user";
 
 const SORTABLE = {
   number: "number",
@@ -54,62 +49,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await authorize("issue:create");
-  if (auth instanceof NextResponse) return auth;
-  const userId = auth.actor.id;
+  const actor = await currentUser();
+  if (!actor) return NextResponse.json(UNAUTHORIZED_RESPONSE, { status: 401 });
 
-  const body = await request.json().catch(() => null);
-  const parsed = issueCreateSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", fields: fieldErrors(parsed.error) },
-      { status: 400 },
-    );
-  }
-
-  const dashboard = await prisma.dashboard.findUnique({
-    where: { id: parsed.data.dashboardId },
-    select: { id: true },
-  });
-  if (!dashboard) {
-    return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
-  }
-
-  if (parsed.data.assigneeId !== undefined) {
-    const assignee = await resolveAssignee(parsed.data.assigneeId);
-    if (!assignee.ok) {
-      return NextResponse.json(
-        { error: "Validation failed", fields: { assigneeId: assignee.message } },
-        { status: 400 },
-      );
-    }
-    parsed.data.assigneeId = assignee.value;
-  }
-
-  // The JWT outlives the row it names: a re-seeded database (or a deleted
-  // account) leaves a valid cookie pointing at a user that no longer exists,
-  // and the reporter foreign key would then fail. Say so instead of 500ing.
-  const reporter = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (!reporter) {
-    return NextResponse.json(
-      { error: "Your account no longer exists. Sign in again." },
-      { status: 401 },
-    );
-  }
-
-  try {
-    const issue = await prisma.issue.create({
-      // The reporter is always the signed-in user, never the request body.
-      data: { ...parsed.data, reporterId: userId },
-      include: ISSUE_INCLUDE,
-    });
-    return NextResponse.json({ issue: toIssueDTO(issue) }, { status: 201 });
-  } catch (error) {
-    // The dashboard was deleted after the check above.
-    if (isDashboardForeignKeyViolation(error)) {
-      return NextResponse.json(DASHBOARD_NOT_FOUND_RESPONSE, { status: 400 });
-    }
-    throw error;
-  }
+  const result = await createIssue(actor, await request.json().catch(() => null));
+  if (!result.ok) return errorResponse(result);
+  return NextResponse.json({ issue: result.value }, { status: 201 });
 }
