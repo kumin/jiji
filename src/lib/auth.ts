@@ -1,7 +1,6 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import NextAuth from "next-auth";
 
-import { isAdminEmail } from "@/lib/admin-emails";
 import { avatarColor } from "@/lib/avatar-color";
 import { allowedEmailDomains, authConfig, isAllowedEmail } from "@/lib/auth.config";
 import { prisma } from "@/lib/prisma";
@@ -75,19 +74,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
-    /**
-     * Promote ADMIN_EMAILS users. This is an event rather than part of the
-     * `signIn` callback because a first-time Google user's row is only created
-     * by the adapter after that callback returns; events run once it exists.
-     * A failure here is only logged, which at worst leaves someone a Member.
-     */
-    async signIn({ user }) {
-      if (!isAdminEmail(user.email)) return;
-      await prisma.user.updateMany({
-        where: { email: { equals: user.email!, mode: "insensitive" }, role: { not: "ADMIN" } },
-        data: { role: "ADMIN" },
-      });
-    },
     // Google supplies a name and picture but no colour, so derive one per user.
     async createUser({ user }) {
       if (!user.id) return;

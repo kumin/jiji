@@ -1091,46 +1091,29 @@ describe("dashboard permissions", () => {
   });
 });
 
-describe("ADMIN_EMAILS promotion", () => {
-  // Listed in the jiji-test server's ADMIN_EMAILS (.claude/launch.json).
-  const ADMIN_EMAIL = `${TEST_EMAIL_PREFIX}admin@example.com`;
-
+describe("roles on sign-in", () => {
   async function roleOf(id: string) {
     const { prisma } = await import("@/lib/prisma");
     return (await prisma.user.findUnique({ where: { id }, select: { role: true } }))?.role;
   }
 
-  it("makes a listed email an Admin on first and later sign-ins", async (t) => {
-    if (!canAuth()) return t.skip("no dev-login provider");
-    const client = createClient();
-    await client.devLogin("E2E Listed Admin", ADMIN_EMAIL);
-    const id = (await client.session())?.user?.id;
-    assert.ok(id);
-    assert.equal(await roleOf(id), "ADMIN", "first sign-in");
-
-    const { prisma } = await import("@/lib/prisma");
-    await prisma.user.update({ where: { id }, data: { role: "MEMBER" } });
-    await createClient().devLogin("E2E Listed Admin", ADMIN_EMAIL);
-    assert.equal(await roleOf(id), "ADMIN", "signing in again re-promotes");
-  });
-
-  it("leaves other users' roles alone", async (t) => {
+  it("makes new users Members and leaves existing users' roles alone", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const fresh = createClient();
-    await fresh.devLogin("E2E Unlisted", `${unique()}@example.com`);
+    await fresh.devLogin("E2E New User", `${unique()}@example.com`);
     const freshId = (await fresh.session())?.user?.id;
     assert.ok(freshId);
-    assert.equal(await roleOf(freshId), "MEMBER", "a new unlisted user is a Member");
+    assert.equal(await roleOf(freshId), "MEMBER", "a new user is a Member");
 
-    const viewer = createClient();
+    const admin = createClient();
     const email = `${unique()}@example.com`;
-    await viewer.devLogin("E2E Existing Viewer", email);
-    const viewerId = (await viewer.session())?.user?.id;
-    assert.ok(viewerId);
+    await admin.devLogin("E2E Existing Admin", email);
+    const adminId = (await admin.session())?.user?.id;
+    assert.ok(adminId);
     const { prisma } = await import("@/lib/prisma");
-    await prisma.user.update({ where: { id: viewerId }, data: { role: "VIEWER" } });
-    await createClient().devLogin("E2E Existing Viewer", email);
-    assert.equal(await roleOf(viewerId), "VIEWER", "an existing user keeps their role");
+    await prisma.user.update({ where: { id: adminId }, data: { role: "ADMIN" } });
+    await createClient().devLogin("E2E Existing Admin", email);
+    assert.equal(await roleOf(adminId), "ADMIN", "signing in again keeps the role");
   });
 });
 

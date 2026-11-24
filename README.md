@@ -159,15 +159,14 @@ Every user has one role:
 | Create, rename or delete dashboards | | | ✓ |
 | Change roles (the **Users** page) | | | ✓ |
 
-New users start as Members. To get your first Admin, list their email in
-`.env`:
+New users start as Members. To make someone an Admin, update the database
+directly (for example in `npm run db:studio` or `psql`):
 
-```bash
-ADMIN_EMAILS="you@gmail.com"            # comma-separated, case-insensitive
+```sql
+update "User" set role = 'ADMIN' where email = 'you@gmail.com';
 ```
 
-Listed users are promoted to Admin every time they sign in. Taking an address off
-the list does **not** demote anyone; do that on the Users page. The rules live in
+After that, Admins change everyone else's role on the Users page. The rules live in
 `src/lib/permissions.ts`, shared by the API (which enforces them) and the UI
 (which only hides what you can't use).
 
@@ -222,8 +221,8 @@ If the Prisma client ever goes missing (it is gitignored), run
 For the API layer, run the server first:
 
 ```bash
-npm run dev     # one shell
-npm test        # another
+AUTH_DEV_LOGIN=true npm run dev   # one shell (signed-in tests need dev login)
+npm test                          # another
 ```
 
 ## Troubleshooting

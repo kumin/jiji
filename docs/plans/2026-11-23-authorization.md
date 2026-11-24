@@ -2,7 +2,7 @@
 
 Spec: docs/specs/2026-11-23-authorization.md
 Branch: feat/authorization
-Commands: test `npm test` (with the `jiji-test` preview server running, so the signed-in API tests don't skip) · full check `npm run check` (typecheck + lint + test) · build `npm run build` (stop the dev server first, then restart `jiji-dev`)
+Commands: test `npm test` (with `AUTH_DEV_LOGIN=true npm run dev` running, so the signed-in API tests don't skip) · full check `npm run check` (typecheck + lint + test) · build `npm run build` (stop the dev server first, then restart `jiji-dev`)
 
 Conventions used below:
 - **Actor**: `{ id: string; role: Role }`, the signed-in user as permissions see them. It's not called "Viewer", which would clash with the VIEWER role.
@@ -141,6 +141,7 @@ Conventions used below:
 - Verify: restart `jiji-test`, run `npm test`, then `npm run check`.
 - Covers: AC 2
 - [x] Done (the real .env is left alone until Task 12)
+- **Removed on 2026-11-24** at the user's request: `ADMIN_EMAILS`, `src/lib/admin-emails.ts`, its tests, the `events.signIn` handler and `.claude/launch.json` are gone. The first Admin is set in the database. AC 2 is now covered by the "roles on sign-in" API test.
 
 ## Task 8: Add PATCH /api/users/{id} to change a role
 - Files:
@@ -225,7 +226,7 @@ Conventions used below:
 - [x] With `jiji-test` running, `npm run check` shows everything green and 0 skipped.
 - [x] Stop the server and run `npm run build`; it passes. Restart `jiji-dev`.
 - [x] Prove on a scratch database that the migration plus seed applies cleanly: `migrate deploy` then `db seed`, and Ada is ADMIN.
-- [ ] Ask the user before adding their own email to `ADMIN_EMAILS` in `.env`, so they're an Admin locally.
+- [x] The user chose to be made Admin by editing the database instead of `ADMIN_EMAILS`.
 - Covers: AC 13
 - Result: 158 tests pass, 0 fail, 0 skipped; the build passes; on a scratch DB `migrate deploy` + `db seed` give Ada ADMIN and the other three MEMBER.
 
@@ -247,10 +248,12 @@ Conventions used below:
 | 13 | 2, 12 |
 
 ## Deviations from the spec
-- The ADMIN_EMAILS promotion runs in `events.signIn` rather than the `signIn` callback (Task 7). The behaviour the spec describes is unchanged; only the hook differs, because a new Google user's row doesn't exist yet when the callback runs.
 - `/issues/new` returns 404 for Viewers (Task 9). The spec only said to hide the link, and this follows the same rule as `/users`.
 
 ## Verify-work fixes
-- The spec now says `events.signIn` promotes ADMIN_EMAILS users, matching the code.
 - `currentUser()` is wrapped in React `cache`, so the layout and the page share one role lookup per render.
 - A Serializable conflict (P2034) on a role change returns 409 "Roles were changed at the same time. Try again." instead of the last-Admin message. A new test has two Admins demote each other at once and checks that at least one Admin remains.
+
+## Changes after review (2026-11-24)
+- `ADMIN_EMAILS` is removed entirely; nothing in the environment configures Admins. The first Admin is made with SQL (see the README), and the spec's AC 2 now says sign-in never changes a role.
+- `.claude/launch.json` is deleted. Run the API tests against `AUTH_DEV_LOGIN=true npm run dev`.
