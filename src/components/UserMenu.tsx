@@ -6,7 +6,7 @@ import { useState } from "react";
 import { avatarColor } from "@/lib/avatar-color";
 import type { UserDTO } from "@/lib/types";
 
-export function UserMenu({ user }: { user: UserDTO }) {
+export function UserMenu({ user }: { user: Omit<UserDTO, "role"> }) {
   const [pending, setPending] = useState(false);
 
   return (

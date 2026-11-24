@@ -1,4 +1,5 @@
 import type { Prisma } from "@/generated/prisma/client";
+import type { Role } from "@/generated/prisma/enums";
 
 import { issueKey } from "@/lib/issue";
 import type { IssueDTO, UserDTO } from "@/lib/types";
@@ -17,6 +18,7 @@ type RawUser = {
   email: string;
   color: string;
   image: string | null;
+  role: Role;
 };
 
 /** Google accounts may have no display name, so fall back rather than render blank. */
@@ -28,6 +30,7 @@ export function toUserDTO(user: RawUser | null): UserDTO | null {
         email: user.email,
         color: user.color,
         image: user.image,
+        role: user.role,
       }
     : null;
 }

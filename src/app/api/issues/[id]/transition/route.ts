@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { canTransition, STATUS_META, TRANSITIONS } from "@/lib/issue";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
-import { currentUserId } from "@/lib/require-user";
+import { authorize } from "@/lib/require-user";
 import { fieldErrors, transitionSchema } from "@/lib/validation";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -13,9 +13,8 @@ type RouteContext = { params: Promise<{ id: string }> };
  * cards through a single endpoint that always enforces TRANSITIONS.
  */
 export async function POST(request: Request, { params }: RouteContext) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("issue:edit");
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await request.json().catch(() => null);

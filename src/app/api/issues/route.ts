@@ -11,7 +11,7 @@ import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
 import { getStatusCounts } from "@/lib/queries";
-import { currentUserId } from "@/lib/require-user";
+import { authorize } from "@/lib/require-user";
 import { fieldErrors, issueCreateSchema } from "@/lib/validation";
 
 const SORTABLE = {
@@ -54,10 +54,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const userId = await currentUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("issue:create");
+  if (auth instanceof NextResponse) return auth;
+  const userId = auth.actor.id;
 
   const body = await request.json().catch(() => null);
   const parsed = issueCreateSchema.safeParse(body);

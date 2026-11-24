@@ -13,7 +13,16 @@ import type { IssueDTO } from "@/lib/types";
 import { Avatar, Unassigned } from "@/components/Avatar";
 import { PriorityGlyph } from "@/components/Priority";
 
-export function Board({ issues, now }: { issues: IssueDTO[]; now: string }) {
+export function Board({
+  issues,
+  now,
+  canEdit,
+}: {
+  issues: IssueDTO[];
+  now: string;
+  /** False for Viewers: cards render without drag handles. */
+  canEdit: boolean;
+}) {
   const router = useRouter();
 
   // Fixed at SSR time and reused on hydration, so the due-date text matches.
@@ -151,10 +160,10 @@ export function Board({ issues, now }: { issues: IssueDTO[]; now: string }) {
                   return (
                     <li
                       key={issue.id}
-                      draggable
-                      onDragStart={() => onDragStart(issue)}
-                      onDragEnd={onDragEnd}
-                      className={`cursor-grab rounded-md border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow active:cursor-grabbing ${
+                      draggable={canEdit}
+                      onDragStart={canEdit ? () => onDragStart(issue) : undefined}
+                      onDragEnd={canEdit ? onDragEnd : undefined}
+                      className={`${canEdit ? "cursor-grab active:cursor-grabbing" : ""} rounded-md border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow ${
                         dragging?.id === issue.id ? "opacity-40" : ""
                       }`}
                     >

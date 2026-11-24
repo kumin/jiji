@@ -13,7 +13,7 @@ import type { IssueDTO } from "@/lib/types";
  * workflow allows from it, and saves through the transition endpoint, so the
  * dropdown and the server's TRANSITIONS rules cannot drift apart.
  */
-export function StatusSelect({ issue }: { issue: IssueDTO }) {
+export function StatusSelect({ issue, disabled = false }: { issue: IssueDTO; disabled?: boolean }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +51,9 @@ export function StatusSelect({ issue }: { issue: IssueDTO }) {
         <select
           aria-label="Status"
           value={issue.status}
-          disabled={pending}
+          disabled={disabled || pending}
           onChange={(event) => void move(event.target.value as IssueStatus)}
-          className={`cursor-pointer appearance-none rounded-md py-1.5 pl-7 pr-8 text-sm font-semibold ring-1 ring-inset outline-none transition focus:ring-2 focus:ring-blue-300 disabled:opacity-60 ${STATUS_META[issue.status].chip}`}
+          className={`cursor-pointer appearance-none rounded-md py-1.5 pl-7 pr-8 text-sm font-semibold ring-1 ring-inset outline-none transition focus:ring-2 focus:ring-blue-300 disabled:cursor-default disabled:opacity-60 ${STATUS_META[issue.status].chip}`}
         >
           {options.map((status) => (
             <option key={status} value={status}>

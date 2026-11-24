@@ -1,4 +1,4 @@
-import { IssuePriority, IssueStatus } from "@/generated/prisma/enums";
+import { IssuePriority, IssueStatus, Role } from "@/generated/prisma/enums";
 
 /**
  * Wire format for issue data handed to client components. Mirrors the JSON the
@@ -11,6 +11,7 @@ export type UserDTO = {
   color: string;
   /** Google profile picture, when the account has one. */
   image: string | null;
+  role: Role;
 };
 
 export type IssueDTO = {

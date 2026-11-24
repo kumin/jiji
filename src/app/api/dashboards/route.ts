@@ -9,7 +9,7 @@ import {
   toDashboardDTO,
 } from "@/lib/dashboard-service";
 import { prisma } from "@/lib/prisma";
-import { currentUserId } from "@/lib/require-user";
+import { authorize } from "@/lib/require-user";
 import { dashboardCreateSchema, fieldErrors } from "@/lib/validation";
 
 export async function GET() {
@@ -18,9 +18,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("dashboard:manage");
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = dashboardCreateSchema.safeParse(body);

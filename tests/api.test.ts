@@ -111,17 +111,32 @@ function createClient() {
 }
 
 
+type TestRole = "ADMIN" | "MEMBER" | "VIEWER";
+type Client = ReturnType<typeof createClient>;
+
+/**
+ * Sign a fresh dev user in and give them `role`. The role is set through
+ * Prisma because nothing in the API lets a user promote themselves.
+ * Returns the user's id.
+ */
+async function signInAs(client: Client, name: string, role: TestRole = "MEMBER") {
+  await client.devLogin(name, `${unique()}@example.com`);
+  const id = (await client.session())?.user?.id;
+  assert.ok(id, `expected ${name} to be signed in`);
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.user.update({ where: { id }, data: { role } });
+  return id;
+}
+
 const created: string[] = [];
 
 after(async () => {
   if (!reachable) return;
-  const client = createClient();
-  await client.devLogin("Cleanup", `${unique()}@example.com`);
-  for (const id of created) {
-    await client.request(`/api/issues/${id}`, { method: "DELETE" });
-  }
-
   const { prisma } = await import("@/lib/prisma");
+  // Through Prisma, not the API: most test users are Members, who may not
+  // delete issues someone else reported.
+  await prisma.issue.deleteMany({ where: { id: { in: created } } });
+
   // Case-insensitive: the case-only rename test upper-cases names to "E2E-...".
   const testDashboards = {
     name: { startsWith: TEST_DASHBOARD_PREFIX, mode: "insensitive" as const },
@@ -199,7 +214,7 @@ describe("issue lifecycle", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E CRUD", `${unique()}@example.com`);
+    await signInAs(client, "E2E CRUD");
   });
 
   it("creates, reads, updates and deletes an issue", async (t) => {
@@ -308,7 +323,7 @@ describe("workflow enforcement", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Flow", `${unique()}@example.com`);
+    await signInAs(client, "E2E Flow");
     const response = await client.request("/api/issues", {
       method: "POST",
       body: JSON.stringify({ dashboardId: testDashboardId, title: "workflow check" }),
@@ -357,7 +372,7 @@ describe("filters and sorting", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Filters", `${unique()}@example.com`);
+    await signInAs(client, "E2E Filters");
   });
 
   it("ignores inherited Object.prototype keys instead of 500ing", async (t) => {
@@ -406,7 +421,7 @@ describe("assignee handling", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Assignee", `${unique()}@example.com`);
+    await signInAs(client, "E2E Assignee");
   });
 
   it("rejects an assignee that is not a user, with 400 not 500", async (t) => {
@@ -455,7 +470,7 @@ describe("pages render", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Pages", `${unique()}@example.com`);
+    await signInAs(client, "E2E Pages");
   });
 
   it("serves the main pages to a signed-in user", async (t) => {
@@ -490,7 +505,7 @@ describe("dashboards", () => {
 
   before(async () => {
     if (!reachable || !devLoginAvailable) return;
-    await client.devLogin("E2E Dashboards", `${unique()}@example.com`);
+    await signInAs(client, "E2E Dashboards", "ADMIN");
   });
 
   it("creates a dashboard and lists it, sorted by name", async (t) => {
@@ -854,5 +869,525 @@ describe("dashboards", () => {
       });
       assert.equal(response.status, 401, `${method} ${path}`);
     }
+  });
+});
+
+describe("issue permissions", () => {
+  const admin = createClient();
+  const memberA = createClient();
+  const memberB = createClient();
+  const viewer = createClient();
+  let memberAId = "";
+  let otherDashboardId = "";
+
+  type IssueBody = { issue: { id: string; title: string; status: string; dashboard: { id: string } } };
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E Perm Admin", "ADMIN");
+    memberAId = await signInAs(memberA, "E2E Perm Member A");
+    await signInAs(memberB, "E2E Perm Member B");
+    await signInAs(viewer, "E2E Perm Viewer", "VIEWER");
+    const { prisma } = await import("@/lib/prisma");
+    const other = await prisma.dashboard.create({
+      data: { name: `${TEST_DASHBOARD_PREFIX}${process.pid}-perm-${Date.now()}` },
+    });
+    otherDashboardId = other.id;
+  });
+
+  /** An issue reported by `reporterId` (null for none), made through Prisma. */
+  async function seedIssue(reporterId: string | null, title = "permission target") {
+    const { prisma } = await import("@/lib/prisma");
+    const issue = await prisma.issue.create({
+      data: { title, dashboardId: testDashboardId, reporterId },
+    });
+    created.push(issue.id);
+    return issue.id;
+  }
+
+  async function readIssue(id: string) {
+    const response = await admin.request(`/api/issues/${id}`);
+    return response.status === 200 ? ((await response.json()) as IssueBody).issue : null;
+  }
+
+  async function assertForbidden(response: Response, label: string) {
+    assert.equal(response.status, 403, label);
+    const body = (await response.json()) as { error: string; reason: string };
+    assert.equal(body.error, "Forbidden", label);
+    assert.ok(body.reason, `${label}: expected a reason`);
+  }
+
+  it("refuses every issue write from a Viewer and changes nothing", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId, "viewer target");
+
+    await assertForbidden(
+      await viewer.request("/api/issues", {
+        method: "POST",
+        body: JSON.stringify({ dashboardId: testDashboardId, title: "viewer create" }),
+      }),
+      "POST",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: "viewer edit" }),
+      }),
+      "PATCH",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}/transition`, {
+        method: "POST",
+        body: JSON.stringify({ status: "IN_PROGRESS" }),
+      }),
+      "transition",
+    );
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, { method: "DELETE" }),
+      "DELETE",
+    );
+
+    const after = await readIssue(id);
+    assert.ok(after, "the issue must still exist");
+    assert.equal(after.title, "viewer target");
+    assert.equal(after.status, "TODO");
+
+    const { prisma } = await import("@/lib/prisma");
+    assert.equal(await prisma.issue.count({ where: { title: "viewer create" } }), 0);
+  });
+
+  it("checks the role before validating the body", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+    await assertForbidden(
+      await viewer.request(`/api/issues/${id}`, { method: "PATCH", body: "{}" }),
+      "PATCH {}",
+    );
+    await assertForbidden(
+      await viewer.request("/api/issues", { method: "POST", body: "{}" }),
+      "POST {}",
+    );
+  });
+
+  it("lets a Viewer read issues", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+    assert.equal((await viewer.request("/api/issues")).status, 200);
+    assert.equal((await viewer.request(`/api/issues/${id}`)).status, 200);
+  });
+
+  it("lets a Member edit, assign, move and transition someone else's issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const id = await seedIssue(memberAId);
+
+    const patch = await memberB.request(`/api/issues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: "edited by B", assigneeId: memberAId, dashboardId: otherDashboardId }),
+    });
+    assert.equal(patch.status, 200);
+    const patched = ((await patch.json()) as IssueBody).issue;
+    assert.equal(patched.title, "edited by B");
+    assert.equal(patched.dashboard.id, otherDashboardId);
+
+    const move = await memberB.request(`/api/issues/${id}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status: "IN_PROGRESS" }),
+    });
+    assert.equal(move.status, 200);
+  });
+
+  it("lets a Member delete only issues they reported", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const othersIssue = await seedIssue(memberAId, "A's issue");
+    const orphan = await seedIssue(null, "no reporter");
+
+    await assertForbidden(
+      await memberB.request(`/api/issues/${othersIssue}`, { method: "DELETE" }),
+      "B deletes A's issue",
+    );
+    await assertForbidden(
+      await memberB.request(`/api/issues/${orphan}`, { method: "DELETE" }),
+      "B deletes an issue with no reporter",
+    );
+    assert.ok(await readIssue(othersIssue), "A's issue must still exist");
+    assert.ok(await readIssue(orphan), "the orphan must still exist");
+
+    const own = await memberA.request(`/api/issues/${othersIssue}`, { method: "DELETE" });
+    assert.equal(own.status, 204);
+  });
+
+  it("lets an Admin delete any issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const othersIssue = await seedIssue(memberAId);
+    const orphan = await seedIssue(null);
+    assert.equal((await admin.request(`/api/issues/${othersIssue}`, { method: "DELETE" })).status, 204);
+    assert.equal((await admin.request(`/api/issues/${orphan}`, { method: "DELETE" })).status, 204);
+  });
+
+  it("still returns 401, not 403, without a session", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const anon = createClient();
+    for (const [method, path] of [
+      ["POST", "/api/issues"],
+      ["PATCH", "/api/issues/whatever"],
+      ["POST", "/api/issues/whatever/transition"],
+      ["DELETE", "/api/issues/whatever"],
+    ] as const) {
+      const response = await anon.request(path, {
+        method,
+        body: method === "DELETE" ? undefined : "{}",
+      });
+      assert.equal(response.status, 401, `${method} ${path}`);
+    }
+  });
+});
+
+describe("dashboard permissions", () => {
+  const member = createClient();
+  const viewer = createClient();
+  let targetId = "";
+  let targetName = "";
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(member, "E2E Dash Member");
+    await signInAs(viewer, "E2E Dash Viewer", "VIEWER");
+    const { prisma } = await import("@/lib/prisma");
+    targetName = `${TEST_DASHBOARD_PREFIX}${process.pid}-dashperm-${Date.now()}`;
+    targetId = (await prisma.dashboard.create({ data: { name: targetName } })).id;
+  });
+
+  it("refuses dashboard writes from Members and Viewers and changes nothing", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [label, client] of [["member", member], ["viewer", viewer]] as const) {
+      const writes: [string, string, string | undefined][] = [
+        ["POST", "/api/dashboards", JSON.stringify({ name: `${targetName}-${label}-new` })],
+        ["PATCH", `/api/dashboards/${targetId}`, JSON.stringify({ name: `${targetName}-${label}` })],
+        ["DELETE", `/api/dashboards/${targetId}`, undefined],
+      ];
+      for (const [method, path, body] of writes) {
+        const response = await client.request(path, { method, body });
+        assert.equal(response.status, 403, `${label} ${method}`);
+        const json = (await response.json()) as { error: string; reason: string };
+        assert.equal(json.error, "Forbidden");
+        assert.equal(json.reason, "Only Admins can manage dashboards");
+      }
+    }
+
+    const { prisma } = await import("@/lib/prisma");
+    const target = await prisma.dashboard.findUnique({ where: { id: targetId } });
+    assert.equal(target?.name, targetName, "the dashboard must be unchanged");
+    assert.equal(
+      await prisma.dashboard.count({ where: { name: { startsWith: `${targetName}-` } } }),
+      0,
+      "no dashboard may be created",
+    );
+  });
+
+  it("still lets Members and Viewers list dashboards", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    assert.equal((await viewer.request("/api/dashboards")).status, 200);
+    assert.equal((await member.request(`/api/dashboards/${targetId}`)).status, 200);
+  });
+});
+
+describe("roles on sign-in", () => {
+  async function roleOf(id: string) {
+    const { prisma } = await import("@/lib/prisma");
+    return (await prisma.user.findUnique({ where: { id }, select: { role: true } }))?.role;
+  }
+
+  it("makes new users Members and leaves existing users' roles alone", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const fresh = createClient();
+    await fresh.devLogin("E2E New User", `${unique()}@example.com`);
+    const freshId = (await fresh.session())?.user?.id;
+    assert.ok(freshId);
+    assert.equal(await roleOf(freshId), "MEMBER", "a new user is a Member");
+
+    const admin = createClient();
+    const email = `${unique()}@example.com`;
+    await admin.devLogin("E2E Existing Admin", email);
+    const adminId = (await admin.session())?.user?.id;
+    assert.ok(adminId);
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.update({ where: { id: adminId }, data: { role: "ADMIN" } });
+    await createClient().devLogin("E2E Existing Admin", email);
+    assert.equal(await roleOf(adminId), "ADMIN", "signing in again keeps the role");
+  });
+});
+
+describe("changing roles", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+  let adminId = "";
+  let memberId = "";
+  /** Real Admins demoted for the last-Admin tests, restored afterwards. */
+  let demoted: string[] = [];
+
+  type UserBody = { user: { id: string; role: string; email: string } };
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    adminId = await signInAs(admin, "E2E Role Admin", "ADMIN");
+    memberId = await signInAs(member, "E2E Role Member");
+    await signInAs(viewer, "E2E Role Viewer", "VIEWER");
+  });
+
+  after(async () => {
+    if (!demoted.length) return;
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.updateMany({ where: { id: { in: demoted } }, data: { role: "ADMIN" } });
+  });
+
+  const patchRole = (client: Client, id: string, role: unknown) =>
+    client.request(`/api/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) });
+
+  it("lets an Admin change a role, effective on the user's next request", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const target = createClient();
+    const targetId = await signInAs(target, "E2E Role Target");
+
+    const response = await patchRole(admin, targetId, "VIEWER");
+    assert.equal(response.status, 200);
+    const { user } = (await response.json()) as UserBody;
+    assert.equal(user.id, targetId);
+    assert.equal(user.role, "VIEWER");
+
+    // Same session cookie as before the change: no new sign-in.
+    const write = await target.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ dashboardId: testDashboardId, title: "after demotion" }),
+    });
+    assert.equal(write.status, 403);
+
+    const list = (await (await viewer.request("/api/users")).json()) as {
+      users: { id: string; role: string }[];
+    };
+    assert.equal(list.users.find((u) => u.id === targetId)?.role, "VIEWER", "GET /api/users has role");
+  });
+
+  it("validates the role and the user", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const bad = await patchRole(admin, memberId, "OWNER");
+    assert.equal(bad.status, 400);
+    assert.ok(((await bad.json()) as { fields: Record<string, string> }).fields.role);
+
+    const missing = await patchRole(admin, "does-not-exist", "MEMBER");
+    assert.equal(missing.status, 404);
+  });
+
+  it("refuses Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      const response = await patchRole(client, memberId, "ADMIN");
+      assert.equal(response.status, 403);
+      assert.equal(((await response.json()) as { reason: string }).reason, "Only Admins can change roles");
+    }
+    const { prisma } = await import("@/lib/prisma");
+    const row = await prisma.user.findUnique({ where: { id: memberId }, select: { role: true } });
+    assert.equal(row?.role, "MEMBER");
+  });
+
+  it("never demotes the last Admin", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { prisma } = await import("@/lib/prisma");
+    const others = await prisma.user.findMany({
+      where: { role: "ADMIN", id: { not: adminId } },
+      select: { id: true },
+    });
+    demoted = others.map((user) => user.id);
+    await prisma.user.updateMany({ where: { id: { in: demoted } }, data: { role: "MEMBER" } });
+
+    for (const role of ["MEMBER", "VIEWER"]) {
+      const response = await patchRole(admin, adminId, role);
+      assert.equal(response.status, 409, `self-demotion to ${role}`);
+      assert.deepEqual(await response.json(), { error: "At least one Admin is required" });
+    }
+    assert.equal((await patchRole(admin, adminId, "ADMIN")).status, 200, "a no-op is fine");
+
+    // With a second Admin, demoting one is allowed again.
+    assert.equal((await patchRole(admin, memberId, "ADMIN")).status, 200);
+    assert.equal((await patchRole(admin, memberId, "MEMBER")).status, 200);
+  });
+
+  it("keeps an Admin when two Admins demote each other at once", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    // Runs after "never demotes the last Admin", so the real Admins are still
+    // demoted and the test Admin is the only one. Add a second.
+    const other = createClient();
+    const otherId = await signInAs(other, "E2E Role Rival", "ADMIN");
+
+    const [first, second] = await Promise.all([
+      patchRole(admin, otherId, "MEMBER"),
+      patchRole(other, adminId, "MEMBER"),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    assert.ok(!(statuses[0] === 200 && statuses[1] === 200), "both demotions must not succeed");
+    for (const response of [first, second]) {
+      assert.ok([200, 403, 409].includes(response.status), `unexpected ${response.status}`);
+    }
+
+    const { prisma } = await import("@/lib/prisma");
+    const admins = await prisma.user.count({ where: { role: "ADMIN", id: { in: [adminId, otherId] } } });
+    assert.ok(admins >= 1, "at least one Admin must remain");
+  });
+
+  it("returns 401 without a session", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const response = await patchRole(createClient(), "whatever", "ADMIN");
+    assert.equal(response.status, 401);
+  });
+});
+
+describe("role-aware pages", () => {
+  const viewer = createClient();
+  const memberA = createClient();
+  const memberB = createClient();
+  let ownIssueId = ""; // reported by Member A
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(viewer, "E2E Page Viewer", "VIEWER");
+    const memberAId = await signInAs(memberA, "E2E Page Member A");
+    await signInAs(memberB, "E2E Page Member B");
+    const { prisma } = await import("@/lib/prisma");
+    const issue = await prisma.issue.create({
+      data: { title: "page permissions", dashboardId: testDashboardId, reporterId: memberAId },
+    });
+    ownIssueId = issue.id;
+    created.push(issue.id);
+  });
+
+  const html = async (client: Client, path: string) => {
+    const response = await client.get(path);
+    assert.equal(response.status, 200, path);
+    return response.text();
+  };
+  const issuePath = () => `/issues/${ownIssueId}?dashboard=${testDashboardId}`;
+  const DELETE_BUTTON = />Delete</;
+  const EDIT_BUTTON = />Edit issue</;
+  const disabledSelect = (label: string) => new RegExp(`<select[^>]*aria-label="${label}"[^>]*\\sdisabled=""`);
+  const anySelect = (label: string) => new RegExp(`<select[^>]*aria-label="${label}"`);
+
+  it("shows a Viewer no write controls", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const list = await html(viewer, `/?dashboard=${testDashboardId}`);
+    assert.doesNotMatch(list, /href="\/issues\/new/, "no Create issue link");
+
+    const page = await html(viewer, issuePath());
+    assert.doesNotMatch(page, DELETE_BUTTON);
+    assert.doesNotMatch(page, EDIT_BUTTON);
+    assert.match(page, disabledSelect("Status"));
+    assert.match(page, disabledSelect("Assignee"));
+
+    const board = await html(viewer, `/board?dashboard=${testDashboardId}`);
+    assert.match(board, /page permissions/, "the board still shows the card");
+    assert.doesNotMatch(board, /draggable="true"/);
+
+    assert.equal((await viewer.get("/issues/new")).status, 404);
+  });
+
+  it("hides Delete from a Member on someone else's issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const page = await html(memberB, issuePath());
+    assert.doesNotMatch(page, DELETE_BUTTON);
+    assert.match(page, EDIT_BUTTON);
+    assert.match(page, anySelect("Status"));
+    assert.doesNotMatch(page, disabledSelect("Status"));
+
+    const board = await html(memberB, `/board?dashboard=${testDashboardId}`);
+    assert.match(board, /draggable="true"/);
+    assert.match(await html(memberB, `/?dashboard=${testDashboardId}`), /href="\/issues\/new/);
+  });
+
+  it("shows Delete to the Member who reported the issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    assert.match(await html(memberA, issuePath()), DELETE_BUTTON);
+  });
+});
+
+describe("role-aware dashboards page", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E DashPage Admin", "ADMIN");
+    await signInAs(member, "E2E DashPage Member");
+    await signInAs(viewer, "E2E DashPage Viewer", "VIEWER");
+  });
+
+  const html = async (client: Client) => {
+    const response = await client.get("/dashboards");
+    assert.equal(response.status, 200);
+    return response.text();
+  };
+
+  it("lists dashboards without management controls for Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      const page = await html(client);
+      assert.match(page, /href="\/\?dashboard=default-dashboard"/, "the list is still shown");
+      assert.doesNotMatch(page, />Create dashboard</);
+      assert.doesNotMatch(page, />Rename</);
+      assert.doesNotMatch(page, />Delete</);
+    }
+  });
+
+  it("shows an Admin the create, rename and delete controls", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const page = await html(admin);
+    assert.match(page, />Create dashboard</);
+    assert.match(page, />Rename</);
+    assert.match(page, />Delete</);
+  });
+});
+
+describe("users page", () => {
+  const admin = createClient();
+  const member = createClient();
+  const viewer = createClient();
+  let memberId = "";
+
+  before(async () => {
+    if (!reachable || !devLoginAvailable) return;
+    await signInAs(admin, "E2E UsersPage Admin", "ADMIN");
+    memberId = await signInAs(member, "E2E UsersPage Member");
+    await signInAs(viewer, "E2E UsersPage Viewer", "VIEWER");
+  });
+
+  it("is a 404, with no nav link, for Members and Viewers", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const client of [member, viewer]) {
+      assert.equal((await client.get("/users")).status, 404);
+      const home = await (await client.get("/")).text();
+      assert.doesNotMatch(home, /href="\/users"/);
+    }
+  });
+
+  it("lists every user with a role dropdown for an Admin", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await admin.get("/users");
+    assert.equal(response.status, 200);
+    const page = await response.text();
+    assert.match(page, /href="\/users"/, "the nav has a Users link");
+
+    const { prisma } = await import("@/lib/prisma");
+    const member = await prisma.user.findUniqueOrThrow({ where: { id: memberId } });
+    assert.match(page, new RegExp(member.email.replace(/[.]/g, "\\.")));
+    // The member's dropdown, with MEMBER selected.
+    const select = new RegExp(
+      `<select[^>]*aria-label="Role for ${member.name}"[^>]*>.*?</select>`,
+    ).exec(page);
+    assert.ok(select, "expected a role dropdown for the member");
+    assert.match(select[0], /<option value="MEMBER" selected="">/);
+    assert.equal(
+      [...page.matchAll(/aria-label="Role for /g)].length,
+      await prisma.user.count(),
+      "one dropdown per user",
+    );
   });
 });

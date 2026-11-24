@@ -5,7 +5,9 @@ import Link from "next/link";
 import { PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from "@/lib/issue";
 import { buildIssueWhere, parseIssueFilters } from "@/lib/issue-filters";
 import { prisma } from "@/lib/prisma";
+import { can } from "@/lib/permissions";
 import { getStatusCounts, listIssues, resolveDashboard } from "@/lib/queries";
+import { currentUser } from "@/lib/require-user";
 
 import { IssueTable } from "@/components/IssueTable";
 import { NoDashboards } from "@/components/NoDashboards";
@@ -34,7 +36,7 @@ export default async function IssuesPage({ searchParams }: PageProps) {
     return (
       <div className="space-y-4">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">Issues</h1>
-        <NoDashboards />
+        <NoDashboards canManage={can(await currentUser(), "dashboard:manage")} />
       </div>
     );
   }

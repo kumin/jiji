@@ -147,6 +147,29 @@ as anyone. Leave it unset in any deployed environment.
 If neither provider is configured, `/login` explains which variables are missing
 instead of failing.
 
+#### Roles and the first Admin
+
+Every user has one role:
+
+| | Viewer | Member | Admin |
+| --- | --- | --- | --- |
+| See dashboards, issues and users | ✓ | ✓ | ✓ |
+| Create and edit issues (fields, status, assignee, dashboard) | | ✓ | ✓ |
+| Delete an issue | | only ones they reported | ✓ |
+| Create, rename or delete dashboards | | | ✓ |
+| Change roles (the **Users** page) | | | ✓ |
+
+New users start as Members. To make someone an Admin, update the database
+directly (for example in `npm run db:studio` or `psql`):
+
+```sql
+update "User" set role = 'ADMIN' where email = 'you@gmail.com';
+```
+
+After that, Admins change everyone else's role on the Users page. The rules live in
+`src/lib/permissions.ts`, shared by the API (which enforces them) and the UI
+(which only hides what you can't use).
+
 ### 4. Create the schema and sample data
 
 ```bash
@@ -198,8 +221,8 @@ If the Prisma client ever goes missing (it is gitignored), run
 For the API layer, run the server first:
 
 ```bash
-npm run dev     # one shell
-npm test        # another
+AUTH_DEV_LOGIN=true npm run dev   # one shell (signed-in tests need dev login)
+npm test                          # another
 ```
 
 ## Troubleshooting
@@ -227,6 +250,10 @@ Every route requires a session. Unauthenticated API calls get `401` with
 `{"error":"Unauthorized"}`; unauthenticated page visits redirect to `/login`
 with a `callbackUrl`.
 
+A write the caller's role doesn't allow returns `403` with
+`{"error":"Forbidden","reason":"..."}`. The role check runs before the body is
+validated.
+
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/api/issues` | Filters: `q`, `status`, `priority`, `assigneeId` (`none` = unassigned), `sort`, `direction` |
@@ -235,7 +262,8 @@ with a `callbackUrl`.
 | `PATCH` | `/api/issues/:id` | Partial update; omitted fields are left untouched |
 | `DELETE` | `/api/issues/:id` | `204` on success |
 | `POST` | `/api/issues/:id/transition` | Workflow-guarded status change; `409` if the move is illegal |
-| `GET` | `/api/users` | Assignee options |
+| `GET` | `/api/users` | Every user, with their `role` |
+| `PATCH` | `/api/users/:id` | `{ "role": "ADMIN" \| "MEMBER" \| "VIEWER" }`. Admins only; `409` when it would leave no Admin |
 | `*` | `/api/auth/*` | Auth.js endpoints |
 
 Validation failures return `400` with a `fields` map of `{ field: "message" }`.

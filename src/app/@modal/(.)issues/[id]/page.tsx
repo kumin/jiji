@@ -1,6 +1,7 @@
 import { IssueDetail } from "@/components/IssueDetail";
 import { IssueModal } from "@/components/IssueModal";
 import { getIssue, listDashboards, listUsers } from "@/lib/queries";
+import { currentUser } from "@/lib/require-user";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,11 @@ export const dynamic = "force-dynamic";
  */
 export default async function IssuePopup({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [issue, users, dashboards] = await Promise.all([
+  const [issue, users, dashboards, actor] = await Promise.all([
     getIssue(id),
     listUsers(),
     listDashboards(),
+    currentUser(),
   ]);
 
   // No popup rather than a 404: this slot keeps its last route on soft
@@ -24,7 +26,13 @@ export default async function IssuePopup({ params }: { params: Promise<{ id: str
 
   return (
     <IssueModal fullPageHref={`/issues/${issue.id}?dashboard=${issue.dashboard.id}`}>
-      <IssueDetail issue={issue} users={users} dashboards={dashboards} titleId="issue-popup-title" />
+      <IssueDetail
+        issue={issue}
+        users={users}
+        dashboards={dashboards}
+        actor={actor}
+        titleId="issue-popup-title"
+      />
     </IssueModal>
   );
 }

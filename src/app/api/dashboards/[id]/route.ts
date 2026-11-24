@@ -9,7 +9,7 @@ import {
   toDashboardDTO,
 } from "@/lib/dashboard-service";
 import { prisma } from "@/lib/prisma";
-import { currentUserId } from "@/lib/require-user";
+import { authorize } from "@/lib/require-user";
 import { dashboardPatchSchema, fieldErrors } from "@/lib/validation";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -32,9 +32,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("dashboard:manage");
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
   const body = await request.json().catch(() => null);
@@ -73,9 +72,8 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(_request: Request, { params }: RouteContext) {
-  if (!(await currentUserId())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorize("dashboard:manage");
+  if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
 

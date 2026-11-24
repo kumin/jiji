@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { IssueDetail } from "@/components/IssueDetail";
 import { getIssue, listDashboards, listUsers } from "@/lib/queries";
+import { currentUser } from "@/lib/require-user";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,11 @@ export default async function IssueDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [issue, users, dashboards] = await Promise.all([
+  const [issue, users, dashboards, actor] = await Promise.all([
     getIssue(id),
     listUsers(),
     listDashboards(),
+    currentUser(),
   ]);
 
   if (!issue) notFound();
@@ -37,7 +39,7 @@ export default async function IssueDetailPage({
       >
         ← All issues
       </Link>
-      <IssueDetail issue={issue} users={users} dashboards={dashboards} />
+      <IssueDetail issue={issue} users={users} dashboards={dashboards} actor={actor} />
     </div>
   );
 }

@@ -9,7 +9,10 @@ const LINKS = [
   { href: "/dashboards", label: "Dashboards", scoped: false },
 ];
 
-export function NavLinks() {
+const USERS_LINK = { href: "/users", label: "Users", scoped: false };
+
+/** `showUsers` is true for Admins, the only ones who can open /users. */
+export function NavLinks({ showUsers }: { showUsers: boolean }) {
   const pathname = usePathname();
   // Keep the selected dashboard when hopping between the list and the board.
   const dashboard = useSearchParams().get("dashboard");
@@ -17,7 +20,7 @@ export function NavLinks() {
 
   return (
     <nav className="flex items-center gap-1">
-      {LINKS.map((link) => {
+      {(showUsers ? [...LINKS, USERS_LINK] : LINKS).map((link) => {
         const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
         return (
           <Link
