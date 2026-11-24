@@ -84,7 +84,7 @@ Notes for whoever runs this plan:
   - **Helpers:** implement them with `node:crypto`: `randomBytes(32).toString("base64url")` and `createHash("sha256")`.
 - Verify: `npm test` (the new unit tests pass) and `npm run typecheck`.
 - Covers: AC 1 (hashing), AC 4 (parsing and expiry)
-- [ ] Done
+- [x] Done
 
 ## Task 5: Add the token management API
 - Files:
