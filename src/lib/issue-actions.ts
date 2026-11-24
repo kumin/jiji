@@ -7,12 +7,17 @@ import {
   DASHBOARD_NOT_FOUND_RESPONSE,
   isDashboardForeignKeyViolation,
 } from "@/lib/dashboard-service";
-import { issueKey } from "@/lib/issue";
+import { canTransition, issueKey, STATUS_META, TRANSITIONS } from "@/lib/issue";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { type Actor, denyReason } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import type { IssueDTO } from "@/lib/types";
-import { fieldErrors, issueCreateSchema, issuePatchSchema } from "@/lib/validation";
+import {
+  fieldErrors,
+  issueCreateSchema,
+  issuePatchSchema,
+  transitionSchema,
+} from "@/lib/validation";
 
 /**
  * Issue writes shared by the REST routes and the MCP tools, so permissions,
@@ -157,4 +162,42 @@ export async function deleteIssue(
 
   await prisma.issue.delete({ where: { id } });
   return { ok: true, value: { key: issueKey(existing.number) } };
+}
+
+/**
+ * Workflow-guarded status change. Separate from `updateIssue` so the board (and
+ * the MCP `transition_issue` tool) move cards through one path that always
+ * enforces TRANSITIONS.
+ */
+export async function transitionIssue(
+  actor: Actor,
+  id: string,
+  input: unknown,
+): Promise<ActionResult<IssueDTO>> {
+  const reason = denyReason(actor, "issue:edit");
+  if (reason) return forbidden(reason);
+
+  const parsed = transitionSchema.safeParse(input);
+  if (!parsed.success) return validationFailed(fieldErrors(parsed.error));
+  const { status } = parsed.data;
+
+  const issue = await prisma.issue.findUnique({ where: { id }, include: ISSUE_INCLUDE });
+  if (!issue) return ISSUE_NOT_FOUND();
+
+  if (issue.status === status) return { ok: true, value: toIssueDTO(issue) };
+
+  if (!canTransition(issue.status, status)) {
+    return fail(409, {
+      error: `${STATUS_META[issue.status].label} cannot move straight to ${STATUS_META[status].label}`,
+      from: issue.status,
+      allowed: TRANSITIONS[issue.status],
+    });
+  }
+
+  const updated = await prisma.issue.update({
+    where: { id },
+    data: { status },
+    include: ISSUE_INCLUDE,
+  });
+  return { ok: true, value: toIssueDTO(updated) };
 }

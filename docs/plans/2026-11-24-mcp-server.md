@@ -65,7 +65,7 @@ Notes for whoever runs this plan:
 - Change: `transitionIssue(actor, id, input)` copies the route's logic exactly, including the 409 body `{ error, from, allowed }`. The route becomes a thin wrapper around it.
 - Verify: `npm test` shows everything green, and `npm run check`.
 - Covers: AC 11
-- [ ] Done
+- [x] Done
 
 ## Task 4: Add the ApiToken model and token helpers
 - Files:
