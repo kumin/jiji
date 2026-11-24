@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { IssuePriority, IssueStatus } from "@/generated/prisma/enums";
 import {
+  apiTokenCreateSchema,
   dashboardCreateSchema,
   dashboardPatchSchema,
   fieldErrors,
@@ -236,5 +237,37 @@ describe("userRolePatchSchema", () => {
     assert.equal(unknown.success, false);
     assert.ok(fieldErrors(unknown.error!).role);
     assert.equal(userRolePatchSchema.safeParse({}).success, false);
+  });
+});
+
+describe("apiTokenCreateSchema", () => {
+  it("trims the name and defaults the expiry to 30 days", () => {
+    assert.deepEqual(apiTokenCreateSchema.parse({ name: " cli " }), {
+      name: "cli",
+      expiresInDays: 30,
+    });
+  });
+
+  it("accepts each allowed expiry", () => {
+    for (const expiresInDays of [7, 30, 90, 365]) {
+      assert.equal(apiTokenCreateSchema.parse({ name: "a", expiresInDays }).expiresInDays, expiresInDays);
+    }
+  });
+
+  it("rejects any other expiry, including null", () => {
+    for (const expiresInDays of [0, 14, 3650, null, "30"]) {
+      const result = apiTokenCreateSchema.safeParse({ name: "a", expiresInDays });
+      assert.equal(result.success, false, String(expiresInDays));
+      assert.ok(fieldErrors(result.error!).expiresInDays, String(expiresInDays));
+    }
+  });
+
+  it("requires a name of at most 80 characters", () => {
+    for (const name of ["", "   ", "a".repeat(81), undefined]) {
+      const result = apiTokenCreateSchema.safeParse({ name });
+      assert.equal(result.success, false, String(name));
+      assert.ok(fieldErrors(result.error!).name, String(name));
+    }
+    assert.equal(apiTokenCreateSchema.safeParse({ name: "a".repeat(80) }).success, true);
   });
 });

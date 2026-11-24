@@ -1391,3 +1391,133 @@ describe("users page", () => {
     );
   });
 });
+
+type ApiTokenJson = {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};
+
+/** Create a token through the API as `client` and return the full token. */
+async function createToken(client: Client, body: Record<string, unknown> = { name: "e2e" }) {
+  const response = await client.request("/api/tokens", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.status, 201);
+  const json = (await response.json()) as { apiToken: ApiTokenJson; token: string };
+  return json;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function assertAbout(actual: string, expectedMs: number, label: string) {
+  const delta = Math.abs(new Date(actual).getTime() - expectedMs);
+  assert.ok(delta < 60_000, `${label}: ${actual} is ${delta}ms off`);
+}
+
+describe("api tokens", () => {
+  const owner = createClient();
+  const other = createClient();
+
+  before(async () => {
+    if (!canAuth()) return;
+    await signInAs(owner, "E2E Token Owner", "VIEWER");
+    await signInAs(other, "E2E Token Other", "MEMBER");
+  });
+
+  it("creates a token that expires in 30 days by default and stores only its hash", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: " cli " });
+    assert.match(token, /^jiji_[A-Za-z0-9_-]{43}$/);
+    assert.equal(apiToken.name, "cli");
+    assert.equal(apiToken.prefix, token.slice(0, 9));
+    assert.equal(apiToken.lastUsedAt, null);
+    assertAbout(apiToken.expiresAt, Date.now() + 30 * DAY_MS, "default expiry");
+
+    const { prisma } = await import("@/lib/prisma");
+    const { createHash } = await import("node:crypto");
+    const row = await prisma.apiToken.findUniqueOrThrow({ where: { id: apiToken.id } });
+    assert.equal(row.tokenHash, createHash("sha256").update(token).digest("hex"));
+    assert.ok(!Object.values(row).includes(token), "the token itself is never stored");
+  });
+
+  it("honours a chosen expiry", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken } = await createToken(owner, { name: "week", expiresInDays: 7 });
+    assertAbout(apiToken.expiresAt, Date.now() + 7 * DAY_MS, "7-day expiry");
+  });
+
+  it("lists your own tokens without the token itself", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken } = await createToken(owner, { name: "listed" });
+    const response = await owner.request("/api/tokens");
+    assert.equal(response.status, 200);
+    const { apiTokens } = (await response.json()) as { apiTokens: ApiTokenJson[] };
+    const listed = apiTokens.find((entry) => entry.id === apiToken.id);
+    assert.deepEqual(listed, apiToken);
+    assert.ok(apiTokens.every((entry) => !("token" in entry)));
+
+    const others = (await (await other.request("/api/tokens")).json()) as {
+      apiTokens: ApiTokenJson[];
+    };
+    assert.ok(!others.apiTokens.some((entry) => entry.id === apiToken.id), "not in B's list");
+  });
+
+  it("validates the name and the expiry", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [body, field] of [
+      [{ name: "" }, "name"],
+      [{ name: "a".repeat(81) }, "name"],
+      [{ name: "a", expiresInDays: 0 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: 14 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: 3650 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: null }, "expiresInDays"],
+    ] as const) {
+      const response = await owner.request("/api/tokens", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400, JSON.stringify(body));
+      const json = await response.json();
+      assert.ok(json.fields?.[field], `${JSON.stringify(body)} → fields.${field}`);
+    }
+  });
+
+  it("only lets the owner revoke a token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken } = await createToken(owner, { name: "revoke me" });
+    const { prisma } = await import("@/lib/prisma");
+
+    const foreign = await other.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(foreign.status, 404);
+    assert.ok(await prisma.apiToken.findUnique({ where: { id: apiToken.id } }), "still there");
+
+    const own = await owner.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(own.status, 204);
+    assert.equal(await prisma.apiToken.findUnique({ where: { id: apiToken.id } }), null);
+
+    const unknown = await owner.request("/api/tokens/does-not-exist", { method: "DELETE" });
+    assert.equal(unknown.status, 404);
+  });
+
+  it("refuses anonymous callers", async (t) => {
+    if (!reachable) return t.skip("no server");
+    for (const [method, path] of [
+      ["GET", "/api/tokens"],
+      ["POST", "/api/tokens"],
+      ["DELETE", "/api/tokens/whatever"],
+    ] as const) {
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: method === "POST" ? JSON.stringify({ name: "x" }) : undefined,
+        redirect: "manual",
+      });
+      assert.equal(response.status, 401, `${method} ${path}`);
+    }
+  });
+});

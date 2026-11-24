@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import type { ApiTokenDTO } from "@/lib/types";
+
 /**
  * Personal access tokens for the MCP endpoint. A token is `jiji_` plus 32
  * random bytes; only its SHA-256 hash is stored, so a database leak doesn't
@@ -36,3 +38,32 @@ export function expiresAtFrom(now: Date, days: number): Date {
 export function isExpired(token: { expiresAt: Date }, now: Date = new Date()): boolean {
   return token.expiresAt.getTime() <= now.getTime();
 }
+
+type ApiTokenRow = {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date;
+};
+
+export function toApiTokenDTO(row: ApiTokenRow): ApiTokenDTO {
+  return {
+    id: row.id,
+    name: row.name,
+    prefix: row.prefix,
+    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    expiresAt: row.expiresAt.toISOString(),
+  };
+}
+
+export const API_TOKEN_SELECT = {
+  id: true,
+  name: true,
+  prefix: true,
+  createdAt: true,
+  lastUsedAt: true,
+  expiresAt: true,
+} as const;

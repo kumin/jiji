@@ -38,3 +38,13 @@ export type DashboardDTO = {
   createdAt: string;
   updatedAt: string;
 };
+
+/** A personal access token as listed to its owner. The token itself is never included. */
+export type ApiTokenDTO = {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};

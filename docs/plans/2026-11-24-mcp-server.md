@@ -111,7 +111,7 @@ Notes for whoever runs this plan:
   - The routes use `currentUserId()`, returning 401 when it's null. They only ever read or delete rows `where: { userId }`. `DELETE` uses `deleteMany({ where: { id, userId } })` and returns 404 when the count is 0. `GET` sorts by `createdAt desc`.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 1, 2 (management side)
-- [ ] Done
+- [x] Done
 
 ## Task 6: Add the /api/mcp endpoint with token auth and whoami
 - Files:
