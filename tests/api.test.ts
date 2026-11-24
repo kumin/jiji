@@ -1664,6 +1664,21 @@ describe("mcp auth", () => {
     assert.ok(row.lastUsedAt, "lastUsedAt is set");
   });
 
+  it("answers GET and DELETE with 405, after checking the token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { token } = await createToken(owner, { name: "methods" });
+    for (const method of ["GET", "DELETE"]) {
+      const anonymous = await fetch(`${BASE}/api/mcp`, { method, redirect: "manual" });
+      assert.equal(anonymous.status, 401, `${method} without a token`);
+      const response = await fetch(`${BASE}/api/mcp`, {
+        method,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(response.status, 405, method);
+      assert.equal(response.headers.get("allow"), "POST", method);
+    }
+  });
+
   it("doesn't accept a token anywhere but /api/mcp", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
     const { token } = await createToken(owner, { name: "rest" });
@@ -1678,4 +1693,131 @@ describe("mcp auth", () => {
     });
     assert.equal(mint.status, 401, "POST /api/tokens");
   });
+});
+
+type IssueSummaryJson = {
+  key: string;
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  assignee: string | null;
+  dashboard: string;
+  dueDate: string | null;
+  updatedAt: string;
+};
+
+describe("mcp read tools", () => {
+  const viewer = createClient();
+  const member = createClient();
+  let viewerId = "";
+  let tools: Awaited<ReturnType<typeof mcp>>;
+  const issueIds: string[] = [];
+  const word = `mcpread${process.pid}`;
+
+  before(async () => {
+    if (!canAuth()) return;
+    viewerId = await signInAs(viewer, "E2E MCP Viewer", "VIEWER");
+    await signInAs(member, "E2E MCP Member", "MEMBER");
+    tools = await mcp((await createToken(viewer)).token);
+
+    for (const body of [
+      { title: `${word} assigned`, priority: "HIGH", assigneeId: viewerId },
+      { title: `${word} unassigned`, priority: "LOW" },
+      { title: `${word} third`, priority: "LOW" },
+    ]) {
+      const response = await member.request("/api/issues", {
+        method: "POST",
+        body: JSON.stringify({ ...body, dashboardId: testDashboardId }),
+      });
+      assert.equal(response.status, 201);
+      const { issue } = await response.json();
+      issueIds.push(issue.id);
+      created.push(issue.id);
+    }
+    // Move the third one along so the status filter has something to find.
+    await member.request(`/api/issues/${issueIds[2]}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status: "IN_PROGRESS" }),
+    });
+  });
+
+  it("lists dashboards and users", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboards = await tools.call("list_dashboards");
+    assert.equal(dashboards.isError, false, dashboards.text);
+    const mine = (dashboards.data as Array<{ id: string; issueCount: number }>).find(
+      (dashboard) => dashboard.id === testDashboardId,
+    );
+    assert.ok(mine, "the test dashboard is listed");
+    assert.ok(mine.issueCount >= 3);
+    assert.deepEqual(Object.keys(mine).sort(), ["description", "id", "issueCount", "name"]);
+
+    const users = await tools.call("list_users");
+    const me = (users.data as Array<{ id: string; role: string }>).find((u) => u.id === viewerId);
+    assert.ok(me);
+    assert.equal(me.role, "VIEWER");
+    assert.deepEqual(Object.keys(me).sort(), ["email", "id", "name", "role"]);
+  });
+
+  it("searches issues with each filter", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const search = async (args: Record<string, unknown>) => {
+      const result = await tools.call("search_issues", { dashboardId: testDashboardId, ...args });
+      assert.equal(result.isError, false, result.text);
+      return result.data as { total: number; issues: IssueSummaryJson[] };
+    };
+    const titles = (result: { issues: IssueSummaryJson[] }) =>
+      result.issues.map((issue) => issue.title).sort();
+
+    assert.deepEqual(titles(await search({ q: word })), [
+      `${word} assigned`,
+      `${word} third`,
+      `${word} unassigned`,
+    ]);
+    assert.deepEqual(titles(await search({ q: word, priority: "HIGH" })), [`${word} assigned`]);
+    assert.deepEqual(titles(await search({ q: word, status: "IN_PROGRESS" })), [`${word} third`]);
+    assert.deepEqual(titles(await search({ q: word, assignee: "me" })), [`${word} assigned`]);
+    assert.deepEqual(titles(await search({ q: word, assignee: "none" })), [
+      `${word} third`,
+      `${word} unassigned`,
+    ]);
+
+    const limited = await search({ q: word, limit: 1 });
+    assert.equal(limited.issues.length, 1);
+    assert.equal(limited.total, 3);
+    assert.deepEqual(Object.keys(limited.issues[0]!).sort(), [
+      "assignee",
+      "dashboard",
+      "dueDate",
+      "id",
+      "key",
+      "priority",
+      "status",
+      "title",
+      "updatedAt",
+    ]);
+  });
+
+  it("gets an issue by key or by id", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const byId = await tools.call("get_issue", { issue: issueIds[0] });
+    assert.equal(byId.isError, false, byId.text);
+    const issue = byId.data as { id: string; key: string; title: string };
+    assert.equal(issue.id, issueIds[0]);
+
+    const byKey = await tools.call("get_issue", { issue: issue.key.toLowerCase() });
+    assert.deepEqual(byKey.data, byId.data);
+
+    const missing = await tools.call("get_issue", { issue: "JIJI-999999" });
+    assert.equal(missing.isError, true);
+    assert.equal(missing.text, "Issue JIJI-999999 not found");
+  });
+});
+
+// Registered last so it runs after every other cleanup: an open Prisma pool
+// connection would otherwise keep the test process alive for minutes.
+after(async () => {
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.$disconnect();
 });

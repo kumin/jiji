@@ -14,14 +14,9 @@ export const runtime = "nodejs";
  * token's owner, and is answered with plain JSON — no MCP sessions, no
  * server-sent events.
  */
-async function handle(request: Request) {
+export async function POST(request: Request) {
   const actor = await actorFromBearer(request.headers.get("authorization"));
-  if (!actor) {
-    return NextResponse.json(UNAUTHORIZED_RESPONSE, {
-      status: 401,
-      headers: { "WWW-Authenticate": "Bearer" },
-    });
-  }
+  if (!actor) return unauthorized();
 
   const server = createJijiServer(actor);
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -32,4 +27,25 @@ async function handle(request: Request) {
   return transport.handleRequest(request);
 }
 
-export { handle as DELETE, handle as GET, handle as POST };
+/**
+ * GET (a standalone event stream) and DELETE (ending a session) only mean
+ * something with MCP sessions. This endpoint is stateless, so it answers 405,
+ * as the spec allows; otherwise a client's GET stream would stay open forever.
+ * The token is still checked first, so an anonymous caller learns nothing.
+ */
+async function notAllowed(request: Request) {
+  if (!(await actorFromBearer(request.headers.get("authorization")))) return unauthorized();
+  return NextResponse.json(
+    { error: "Method not allowed" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
+}
+
+function unauthorized() {
+  return NextResponse.json(UNAUTHORIZED_RESPONSE, {
+    status: 401,
+    headers: { "WWW-Authenticate": "Bearer" },
+  });
+}
+
+export { notAllowed as DELETE, notAllowed as GET };

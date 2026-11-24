@@ -151,6 +151,9 @@ Notes for whoever runs this plan:
 - Covers: AC 2 (a revoked token gets 401), 3, 4 (auth half)
 - [x] Done
 
+- Note (found in Task 7): with a stateless transport, the SDK client's `GET /api/mcp` event stream stayed open and made the test run hang for minutes. `GET` and `DELETE` now return 405 with `Allow: POST` after the token check, as the MCP spec allows for servers without sessions, and a test covers it.
+- Note (found in Task 7): the test process also stayed alive for minutes after the last test, on an open Prisma pool connection. `tests/api.test.ts` now disconnects Prisma in a final `after` hook, and the suite takes about 9 seconds again.
+
 ## Task 7: Add the read tools
 - Files:
   - `src/lib/issue.ts` and `tests/issue.test.ts`
@@ -178,7 +181,7 @@ Notes for whoever runs this plan:
   - The not-found message uses the ref as the user typed it, trimmed.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 5
-- [ ] Done
+- [x] Done
 
 ## Task 8: Add the write tools
 - Files: `src/lib/mcp/server.ts`, `src/lib/mcp/errors.ts` (new), `tests/mcp-errors.test.ts` (new), `tests/api.test.ts`
