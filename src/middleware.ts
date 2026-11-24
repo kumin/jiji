@@ -10,6 +10,9 @@ const { auth } = NextAuth(authConfig);
 export default auth((request) => {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname === "/login" || pathname.startsWith("/api/auth");
+  // The MCP endpoint authenticates with a Bearer token, not a session cookie,
+  // and answers 401 itself (with WWW-Authenticate) when the token is missing.
+  if (pathname === "/api/mcp") return NextResponse.next();
 
   if (!request.auth && !isAuthRoute) {
     // An unauthenticated API caller wants JSON, not a login page.

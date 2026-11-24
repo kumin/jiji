@@ -1521,3 +1521,161 @@ describe("api tokens", () => {
     }
   });
 });
+
+type ToolCall = { isError: boolean; data: unknown; text: string };
+
+/**
+ * An MCP client connected to the server with `token`, over the same Streamable
+ * HTTP transport Claude Code uses. `call` returns the tool's JSON (or raw text
+ * when it isn't JSON) and whether it was an error result.
+ */
+async function mcp(token: string) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import(
+    "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  );
+  const client = new Client({ name: "jiji-tests", version: "0.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  await client.connect(transport);
+  openMcpClients.push(client);
+
+  async function call(name: string, args: Record<string, unknown> = {}): Promise<ToolCall> {
+    const result = await client.callTool({ name, arguments: args });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    const text = content.map((part) => part.text ?? "").join("");
+    let data: unknown = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Not JSON: error results are plain messages.
+    }
+    return { isError: Boolean(result.isError), data, text };
+  }
+
+  return { client, call };
+}
+
+const openMcpClients: Array<{ close(): Promise<void> }> = [];
+after(async () => {
+  await Promise.all(openMcpClients.map((client) => client.close().catch(() => {})));
+});
+
+/** A raw JSON-RPC `initialize`, for checking what the endpoint does before any MCP happens. */
+function rawInitialize(headers: Record<string, string> = {}) {
+  return fetch(`${BASE}/api/mcp`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...headers,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "raw", version: "0" },
+      },
+    }),
+  });
+}
+
+async function assertMcpUnauthorized(response: Response, label: string) {
+  assert.equal(response.status, 401, label);
+  assert.equal(response.headers.get("www-authenticate"), "Bearer", label);
+  assert.deepEqual(await response.json(), { error: "Unauthorized" }, label);
+}
+
+describe("mcp auth", () => {
+  const owner = createClient();
+  let ownerId = "";
+
+  before(async () => {
+    if (!canAuth()) return;
+    ownerId = await signInAs(owner, "E2E MCP Owner", "MEMBER");
+  });
+
+  it("refuses requests without a usable token", async (t) => {
+    if (!reachable) return t.skip("no server");
+    await assertMcpUnauthorized(await rawInitialize(), "no header");
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: "Basic abc" }),
+      "Basic scheme",
+    );
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: "Bearer jiji_unknown" }),
+      "unknown token",
+    );
+  });
+
+  it("refuses a session cookie on its own", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await owner.request("/api/mcp", {
+      method: "POST",
+      headers: { accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    await assertMcpUnauthorized(response, "cookie only");
+  });
+
+  it("refuses an expired token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "expired" });
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.apiToken.update({
+      where: { id: apiToken.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: `Bearer ${token}` }),
+      "expired token",
+    );
+  });
+
+  it("refuses a revoked token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "revoked" });
+    const before = await rawInitialize({ authorization: `Bearer ${token}` });
+    assert.equal(before.status, 200, "works before revoking");
+    const revoke = await owner.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(revoke.status, 204);
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: `Bearer ${token}` }),
+      "revoked token",
+    );
+  });
+
+  it("connects with a valid token and says who you are", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "whoami" });
+    const { call } = await mcp(token);
+    const me = await call("whoami");
+    assert.equal(me.isError, false, me.text);
+    const { prisma } = await import("@/lib/prisma");
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: ownerId } });
+    assert.deepEqual(me.data, { id: ownerId, name: user.name, email: user.email, role: "MEMBER" });
+
+    const row = await prisma.apiToken.findUniqueOrThrow({ where: { id: apiToken.id } });
+    assert.ok(row.lastUsedAt, "lastUsedAt is set");
+  });
+
+  it("doesn't accept a token anywhere but /api/mcp", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { token } = await createToken(owner, { name: "rest" });
+    const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const list = await fetch(`${BASE}/api/issues`, { headers, redirect: "manual" });
+    assert.equal(list.status, 401, "GET /api/issues");
+    const mint = await fetch(`${BASE}/api/tokens`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "x" }),
+      redirect: "manual",
+    });
+    assert.equal(mint.status, 401, "POST /api/tokens");
+  });
+});

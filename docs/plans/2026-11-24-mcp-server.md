@@ -149,7 +149,7 @@ Notes for whoever runs this plan:
   - **Helper for later tasks:** add `toolJson(value)`, which returns `{ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] }`, and `toolError(message)`, which returns `{ isError: true, content: [{ type: "text", text: message }] }`.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 2 (a revoked token gets 401), 3, 4 (auth half)
-- [ ] Done
+- [x] Done
 
 ## Task 7: Add the read tools
 - Files:
