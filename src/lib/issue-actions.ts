@@ -7,11 +7,12 @@ import {
   DASHBOARD_NOT_FOUND_RESPONSE,
   isDashboardForeignKeyViolation,
 } from "@/lib/dashboard-service";
+import { issueKey } from "@/lib/issue";
 import { ISSUE_INCLUDE, toIssueDTO } from "@/lib/issue-service";
 import { type Actor, denyReason } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import type { IssueDTO } from "@/lib/types";
-import { fieldErrors, issueCreateSchema } from "@/lib/validation";
+import { fieldErrors, issueCreateSchema, issuePatchSchema } from "@/lib/validation";
 
 /**
  * Issue writes shared by the REST routes and the MCP tools, so permissions,
@@ -46,6 +47,7 @@ function validationFailed(fields: Record<string, string>): ActionError {
 }
 
 const DASHBOARD_NOT_FOUND = () => fail(400, DASHBOARD_NOT_FOUND_RESPONSE);
+const ISSUE_NOT_FOUND = () => fail(404, { error: "Issue not found" });
 
 /** The REST response for a failed action. */
 export function errorResponse(error: ActionError) {
@@ -90,4 +92,69 @@ export async function createIssue(actor: Actor, input: unknown): Promise<ActionR
     if (isDashboardForeignKeyViolation(error)) return DASHBOARD_NOT_FOUND();
     throw error;
   }
+}
+
+export async function updateIssue(
+  actor: Actor,
+  id: string,
+  input: unknown,
+): Promise<ActionResult<IssueDTO>> {
+  const reason = denyReason(actor, "issue:edit");
+  if (reason) return forbidden(reason);
+
+  const parsed = issuePatchSchema.safeParse(input);
+  if (!parsed.success) return validationFailed(fieldErrors(parsed.error));
+
+  // `issuePatchSchema` rejects an empty object, so `changes` is never a no-op.
+  const changes = parsed.data;
+
+  if (changes.assigneeId !== undefined) {
+    const assignee = await resolveAssignee(changes.assigneeId);
+    if (!assignee.ok) return validationFailed({ assigneeId: assignee.message });
+    changes.assigneeId = assignee.value;
+  }
+
+  // Moving to another dashboard: an unknown id would otherwise surface as a
+  // foreign-key violation and a 500.
+  if (changes.dashboardId !== undefined) {
+    const dashboard = await prisma.dashboard.findUnique({
+      where: { id: changes.dashboardId },
+      select: { id: true },
+    });
+    if (!dashboard) return DASHBOARD_NOT_FOUND();
+  }
+
+  const existing = await prisma.issue.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) return ISSUE_NOT_FOUND();
+
+  try {
+    const issue = await prisma.issue.update({ where: { id }, data: changes, include: ISSUE_INCLUDE });
+    return { ok: true, value: toIssueDTO(issue) };
+  } catch (error) {
+    // Moving into a dashboard that was deleted after the check above.
+    if (isDashboardForeignKeyViolation(error)) return DASHBOARD_NOT_FOUND();
+    throw error;
+  }
+}
+
+export async function deleteIssue(
+  actor: Actor,
+  id: string,
+): Promise<ActionResult<{ key: string }>> {
+  // Anyone who may edit may delete *something*, so this refuses Viewers before
+  // the lookup; whether this particular issue is theirs is checked below.
+  const reason = denyReason(actor, "issue:edit");
+  if (reason) return forbidden(reason);
+
+  const existing = await prisma.issue.findUnique({
+    where: { id },
+    select: { id: true, number: true, reporterId: true },
+  });
+  if (!existing) return ISSUE_NOT_FOUND();
+
+  const deleteReason = denyReason(actor, "issue:delete", existing);
+  if (deleteReason) return forbidden(deleteReason);
+
+  await prisma.issue.delete({ where: { id } });
+  return { ok: true, value: { key: issueKey(existing.number) } };
 }

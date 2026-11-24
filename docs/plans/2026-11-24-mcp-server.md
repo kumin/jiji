@@ -57,7 +57,7 @@ Notes for whoever runs this plan:
   - The `PATCH` and `DELETE` routes call these the same way as Task 1. `DELETE` still returns 204 with an empty body.
 - Verify: `npm test` shows everything green.
 - Covers: AC 11
-- [ ] Done
+- [x] Done
 
 ## Task 3: Move transitions into issue-actions
 - Files: `src/lib/issue-actions.ts`, `src/app/api/issues/[id]/transition/route.ts`
