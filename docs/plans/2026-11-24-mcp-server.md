@@ -20,7 +20,7 @@ Notes for whoever runs this plan:
   - For tests: `Client` from `/client/index.js` and `StreamableHTTPClientTransport` from `/client/streamableHttp.js`, created with `{ requestInit: { headers: { Authorization } } }`.
 
 ## Task 0: Baseline
-- [ ] `git checkout -b feat/mcp-server`, then commit the approved spec and this plan (`docs: spec and plan for the MCP server`).
+- [x] `git checkout -b feat/mcp-server`, then commit the approved spec and this plan (`docs: spec and plan for the MCP server`).
 - [x] Start `AUTH_DEV_LOGIN=true npm run dev` in the background and run `npm run check`. Record the counts; expect 154 passing and 0 skipped.
 - Result: 154 pass, 0 fail, 0 skipped.
 
