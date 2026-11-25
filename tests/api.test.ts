@@ -1821,3 +1821,194 @@ after(async () => {
   const { prisma } = await import("@/lib/prisma");
   await prisma.$disconnect();
 });
+
+describe("mcp write tools", () => {
+  const member = createClient();
+  const otherMember = createClient();
+  const viewer = createClient();
+  const admin = createClient();
+  let memberId = "";
+  let asMember: Awaited<ReturnType<typeof mcp>>;
+  let asViewer: Awaited<ReturnType<typeof mcp>>;
+  let asAdmin: Awaited<ReturnType<typeof mcp>>;
+
+  type IssueJson = { id: string; key: string; title: string; status: string; priority: string };
+
+  async function createViaMcp(title: string, extra: Record<string, unknown> = {}) {
+    const result = await asMember.call("create_issue", {
+      dashboardId: testDashboardId,
+      title,
+      ...extra,
+    });
+    assert.equal(result.isError, false, result.text);
+    const issue = result.data as IssueJson;
+    created.push(issue.id);
+    return issue;
+  }
+
+  /** An issue reported by `otherMember`, made through REST. */
+  async function someoneElsesIssue(title: string) {
+    const response = await otherMember.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ title, dashboardId: testDashboardId }),
+    });
+    assert.equal(response.status, 201);
+    const { issue } = await response.json();
+    created.push(issue.id);
+    return issue as IssueJson;
+  }
+
+  async function restIssue(id: string) {
+    const response = await member.request(`/api/issues/${id}`);
+    return response.status === 404 ? null : ((await response.json()).issue as IssueJson);
+  }
+
+  before(async () => {
+    if (!canAuth()) return;
+    memberId = await signInAs(member, "E2E MCP Writer", "MEMBER");
+    await signInAs(otherMember, "E2E MCP Other", "MEMBER");
+    await signInAs(viewer, "E2E MCP Read Only", "VIEWER");
+    await signInAs(admin, "E2E MCP Admin", "ADMIN");
+    asMember = await mcp((await createToken(member)).token);
+    asViewer = await mcp((await createToken(viewer)).token);
+    asAdmin = await mcp((await createToken(admin)).token);
+  });
+
+  it("lists exactly the nine tools, with hints and no status on update_issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { tools } = await asMember.client.listTools();
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), [
+      "create_issue",
+      "delete_issue",
+      "get_issue",
+      "list_dashboards",
+      "list_users",
+      "search_issues",
+      "transition_issue",
+      "update_issue",
+      "whoami",
+    ]);
+    const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+    for (const name of ["whoami", "list_dashboards", "list_users", "search_issues", "get_issue"]) {
+      assert.equal(byName[name]!.annotations?.readOnlyHint, true, name);
+    }
+    assert.equal(byName.delete_issue!.annotations?.destructiveHint, true);
+    const updateProps = Object.keys(byName.update_issue!.inputSchema.properties ?? {});
+    assert.ok(!updateProps.includes("status"), "update_issue has no status");
+  });
+
+  it("lets a Member create, update and transition issues", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP created");
+    const full = (await asMember.call("get_issue", { issue: issue.key })).data as {
+      reporter: { id: string };
+    };
+    assert.equal(full.reporter.id, memberId, "the token owner is the reporter");
+
+    const updated = await asMember.call("update_issue", {
+      issue: issue.key,
+      title: "E2E MCP renamed",
+      priority: "HIGHEST",
+    });
+    assert.equal(updated.isError, false, updated.text);
+    assert.equal((updated.data as IssueJson).title, "E2E MCP renamed");
+    assert.equal((updated.data as IssueJson).priority, "HIGHEST");
+
+    const empty = await asMember.call("update_issue", { issue: issue.key });
+    assert.equal(empty.isError, true);
+    assert.match(empty.text, /Provide at least one field to update/);
+
+    const moved = await asMember.call("transition_issue", {
+      issue: issue.id,
+      status: "IN_PROGRESS",
+    });
+    assert.equal(moved.isError, false, moved.text);
+    assert.equal((moved.data as IssueJson).status, "IN_PROGRESS");
+  });
+
+  it("refuses to skip workflow steps", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP workflow");
+    const result = await asMember.call("transition_issue", { issue: issue.key, status: "DONE" });
+    assert.equal(result.isError, true);
+    assert.equal(result.text, "To Do cannot move straight to Done (allowed: IN_PROGRESS)");
+    assert.equal((await restIssue(issue.id))!.status, "TODO");
+  });
+
+  it("gives the REST API's validation messages", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [args, pattern] of [
+      [{ title: "" }, /Validation failed: title: Title is required/],
+      [{ title: "x", dashboardId: "nope" }, /Dashboard not found/i],
+      [{ title: "x", assigneeId: "nobody" }, /Validation failed: assigneeId: /],
+      [{ title: "x", dueDate: "tomorrow" }, /Validation failed: dueDate: Expected YYYY-MM-DD/],
+    ] as const) {
+      const result = await asMember.call("create_issue", { dashboardId: testDashboardId, ...args });
+      assert.equal(result.isError, true, JSON.stringify(args));
+      assert.match(result.text, pattern, JSON.stringify(args));
+    }
+  });
+
+  it("refuses every write from a Viewer", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP viewer target");
+    for (const [name, args, reason] of [
+      ["create_issue", { dashboardId: testDashboardId, title: "nope" }, "Viewers can't create issues"],
+      ["update_issue", { issue: issue.key, title: "nope" }, "Viewers can't edit issues"],
+      ["transition_issue", { issue: issue.key, status: "IN_PROGRESS" }, "Viewers can't edit issues"],
+      ["delete_issue", { issue: issue.key }, "Viewers can't edit issues"],
+    ] as const) {
+      const result = await asViewer.call(name, args);
+      assert.equal(result.isError, true, name);
+      assert.equal(result.text, `Forbidden: ${reason}`, name);
+    }
+    const after = await restIssue(issue.id);
+    assert.equal(after?.title, "E2E MCP viewer target");
+    assert.equal(after?.status, "TODO");
+  });
+
+  it("lets Members delete only issues they reported, and Admins any", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const own = await createViaMcp("E2E MCP mine");
+    const deleted = await asMember.call("delete_issue", { issue: own.key });
+    assert.equal(deleted.isError, false, deleted.text);
+    assert.deepEqual(deleted.data, { deleted: own.key });
+    assert.equal(await restIssue(own.id), null);
+
+    const theirs = await someoneElsesIssue("E2E MCP theirs");
+    const refused = await asMember.call("delete_issue", { issue: theirs.key });
+    assert.equal(refused.isError, true);
+    assert.equal(refused.text, "Forbidden: Members can only delete issues they reported");
+    assert.ok(await restIssue(theirs.id), "still there");
+
+    const byAdmin = await asAdmin.call("delete_issue", { issue: theirs.id });
+    assert.equal(byAdmin.isError, false, byAdmin.text);
+    assert.equal(await restIssue(theirs.id), null);
+
+    const missing = await asMember.call("delete_issue", { issue: "JIJI-999999" });
+    assert.equal(missing.text, "Issue JIJI-999999 not found");
+  });
+
+  it("applies a role change to an existing token on its next call", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const demoted = createClient();
+    const demotedId = await signInAs(demoted, "E2E MCP Demoted", "MEMBER");
+    const tools = await mcp((await createToken(demoted)).token);
+    const made = await tools.call("create_issue", { dashboardId: testDashboardId, title: "E2E MCP before demotion" });
+    assert.equal(made.isError, false, made.text);
+    created.push((made.data as IssueJson).id);
+
+    const response = await admin.request(`/api/users/${demotedId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "VIEWER" }),
+    });
+    assert.equal(response.status, 200);
+
+    const after = await tools.call("update_issue", {
+      issue: (made.data as IssueJson).key,
+      title: "nope",
+    });
+    assert.equal(after.isError, true);
+    assert.equal(after.text, "Forbidden: Viewers can't edit issues");
+  });
+});

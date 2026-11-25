@@ -220,7 +220,9 @@ Notes for whoever runs this plan:
   - **Tool descriptions** should tell Claude the workflow (TODO → IN_PROGRESS → IN_REVIEW → DONE, one step at a time, backwards allowed one step), and that `issue` accepts `JIJI-n` or an id.
 - Verify: `npm test`, then `npm run check`.
 - Covers: AC 4 (tools/list), 6, 7, 8, 9, 10
-- [ ] Done
+- [x] Done
+
+- Note (found in Task 8): the "two Admins demote each other" test from the roles feature failed about 1 run in 5 with a 500. A conflict caught at COMMIT reaches the route as a `DriverAdapterError` (`TransactionWriteConflict`), not P2034. Fixed in its own commit with `src/lib/prisma-errors.ts` (`isWriteConflict`) and unit tests. Afterwards, 10 runs in a row passed in 6–8 s each. Some earlier runs took minutes before exiting, even with every test passing; that didn't happen again in those 10 runs.
 
 ## Task 9: Add the API tokens page
 - Files:
