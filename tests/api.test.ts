@@ -1504,6 +1504,19 @@ describe("api tokens", () => {
     assert.equal(unknown.status, 404);
   });
 
+  it("refuses a session whose user no longer exists", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const ghost = createClient();
+    const ghostId = await signInAs(ghost, "E2E Token Ghost", "MEMBER");
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.delete({ where: { id: ghostId } });
+    const response = await ghost.request("/api/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name: "ghost" }),
+    });
+    assert.equal(response.status, 401);
+  });
+
   it("refuses anonymous callers", async (t) => {
     if (!reachable) return t.skip("no server");
     for (const [method, path] of [
@@ -1812,6 +1825,46 @@ describe("mcp read tools", () => {
     const missing = await tools.call("get_issue", { issue: "JIJI-999999" });
     assert.equal(missing.isError, true);
     assert.equal(missing.text, "Issue JIJI-999999 not found");
+  });
+});
+
+describe("api tokens page", () => {
+  it("lists your tokens with their expiry, never the token itself", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const viewer = createClient();
+    await signInAs(viewer, "E2E Tokens Page", "VIEWER");
+    const live = await createToken(viewer, { name: "e2e live token" });
+    const old = await createToken(viewer, { name: "e2e old token" });
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.apiToken.update({
+      where: { id: old.apiToken.id },
+      data: { expiresAt: new Date(Date.now() - DAY_MS) },
+    });
+
+    const response = await viewer.request("/settings/tokens");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes("e2e live token") && html.includes(live.apiToken.prefix));
+    assert.ok(html.includes("e2e old token"));
+    assert.match(html, />Expired</, "the expired token is marked");
+    assert.ok(!html.includes(live.token) && !html.includes(old.token), "no full tokens");
+  });
+
+  it("links to the page from the user menu for every role", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const role of ["VIEWER", "MEMBER", "ADMIN"] as const) {
+      const client = createClient();
+      await signInAs(client, `E2E Menu ${role}`, role);
+      const html = await (await client.request("/dashboards")).text();
+      assert.match(html, /href="\/settings\/tokens"/, role);
+    }
+  });
+
+  it("sends anonymous visitors to the login page", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const response = await fetch(`${BASE}/settings/tokens`, { redirect: "manual" });
+    assert.equal(response.status, 307);
+    assert.match(response.headers.get("location") ?? "", /\/login/);
   });
 });
 

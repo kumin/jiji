@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
 
@@ -27,6 +28,12 @@ export function UserMenu({ user }: { user: Omit<UserDTO, "role"> }) {
         )}
         <span className="hidden sm:inline">{user.name ?? user.email}</span>
       </span>
+      <Link
+        href="/settings/tokens"
+        className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200"
+      >
+        API tokens
+      </Link>
       <button
         type="button"
         disabled={pending}

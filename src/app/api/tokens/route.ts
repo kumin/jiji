@@ -9,7 +9,7 @@ import {
   tokenPrefix,
 } from "@/lib/api-tokens";
 import { prisma } from "@/lib/prisma";
-import { currentUserId, UNAUTHORIZED_RESPONSE } from "@/lib/require-user";
+import { currentUser, UNAUTHORIZED_RESPONSE } from "@/lib/require-user";
 import { apiTokenCreateSchema, fieldErrors } from "@/lib/validation";
 
 /**
@@ -18,7 +18,9 @@ import { apiTokenCreateSchema, fieldErrors } from "@/lib/validation";
  * more tokens.
  */
 export async function GET() {
-  const userId = await currentUserId();
+  // currentUser, not currentUserId: a session can outlive its user row (a
+  // re-seeded database), and the token's foreign key would then fail.
+  const userId = (await currentUser())?.id;
   if (!userId) return NextResponse.json(UNAUTHORIZED_RESPONSE, { status: 401 });
 
   const rows = await prisma.apiToken.findMany({
@@ -30,7 +32,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const userId = await currentUserId();
+  // currentUser, not currentUserId: a session can outlive its user row (a
+  // re-seeded database), and the token's foreign key would then fail.
+  const userId = (await currentUser())?.id;
   if (!userId) return NextResponse.json(UNAUTHORIZED_RESPONSE, { status: 401 });
 
   const parsed = apiTokenCreateSchema.safeParse(await request.json().catch(() => null));

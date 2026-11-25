@@ -250,7 +250,9 @@ Notes for whoever runs this plan:
   - Revoke it.
   - An expired token shows "Expired".
 - Covers: AC 12
-- [ ] Done
+- [x] Done (browser: created a 7-day token and saw it once, reload hides it, an expired token shows Expired, Revoke removes it)
+
+- Note (found in Task 9): in the browser, creating a token as a session whose user row had been deleted by the test cleanup returned a 500 (foreign key). The token routes and the page now use `currentUser()`, which is null for a deleted user, so the API answers 401, as issue creation already does. A test covers it.
 
 ## Task 10: Document using Jiji from Claude
 - Files: `README.md`
