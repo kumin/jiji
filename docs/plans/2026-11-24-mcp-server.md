@@ -268,7 +268,7 @@ Notes for whoever runs this plan:
   - Also add `/api/mcp` and `/api/tokens` rows to the API table.
 - Verify: actually run `claude mcp add` against the dev server with a fresh token, then `claude mcp list` shows `jiji` as connected. Remove it afterwards with `claude mcp remove jiji`.
 - Covers: (docs for AC 4, 12)
-- [ ] Done
+- [x] Done (claude mcp add with a real token reported Connected; the entry, token and test user were removed afterwards)
 
 ## Task 11: Final check
 - [ ] With `AUTH_DEV_LOGIN=true npm run dev` running, `npm run check` shows everything green and 0 skipped.
