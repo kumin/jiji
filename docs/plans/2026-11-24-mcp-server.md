@@ -271,9 +271,10 @@ Notes for whoever runs this plan:
 - [x] Done (claude mcp add with a real token reported Connected; the entry, token and test user were removed afterwards)
 
 ## Task 11: Final check
-- [ ] With `AUTH_DEV_LOGIN=true npm run dev` running, `npm run check` shows everything green and 0 skipped.
-- [ ] Stop the server, `rm -rf .next`, then run `npm run build` and confirm it passes.
-- [ ] On a scratch database, `migrate deploy` and then `db seed` apply cleanly.
+- [x] With `AUTH_DEV_LOGIN=true npm run dev` running, `npm run check` shows everything green and 0 skipped.
+- [x] Stop the server, `rm -rf .next`, then run `npm run build` and confirm it passes.
+- [x] On a scratch database, `migrate deploy` and then `db seed` apply cleanly.
+- Result: 201 tests pass, 0 fail, 0 skipped. `npm run build` passes; its one warning (jose in the edge middleware) also appears on `main`. On a scratch DB, `migrate deploy` + `db seed` apply cleanly, giving Ada ADMIN, the other three MEMBER, and no tokens.
 - Covers: AC 13
 
 ## Acceptance criteria coverage
