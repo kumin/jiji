@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { prisma } from "@/lib/prisma";
+import { listUsers } from "@/lib/queries";
 
+/**
+ * Everyone, with only their public fields (via `toUserDTO`). Returning raw rows
+ * would hand every signed-in user any column added to User later.
+ */
 export async function GET() {
-  const users = await prisma.user.findMany({ orderBy: { name: "asc" } });
-  return NextResponse.json({ users });
+  return NextResponse.json({ users: await listUsers() });
 }

@@ -51,16 +51,29 @@ The repo assumes `docker` is aliased to `podman`:
 ln -sf "$(which podman)" /opt/homebrew/bin/docker
 ```
 
-Then create the Postgres container (port 5432, credentials `jira`/`jira`):
+Then create the Postgres container (port 5432, credentials `jira`/`jira`). The
+port is published on `127.0.0.1` only: `jira` is a Postgres superuser with a
+throwaway password, so it must not be reachable from your network.
 
 ```bash
 docker run -d --name jira-postgres \
   -e POSTGRES_USER=jira -e POSTGRES_PASSWORD=jira -e POSTGRES_DB=jira \
-  -p 5432:5432 \
+  -p 127.0.0.1:5432:5432 \
   --restart=unless-stopped \
   -v jira-pgdata:/var/lib/postgresql/data \
   docker.io/library/postgres:16-alpine
 ```
+
+Created the container before this binding was added? `docker port jira-postgres`
+shows `0.0.0.0:5432`. Recreate it; the data lives in the `jira-pgdata` volume and
+is kept:
+
+```bash
+docker rm -f jira-postgres
+```
+
+Then run the `docker run` command above again. Anywhere other than your own
+machine, use a strong password instead of `jira`.
 
 ### 2. Install and configure
 
@@ -142,7 +155,9 @@ so it cannot be reached from a production build.
 Be clear about what this is: **it has no password**. Any name and email you type
 will be accepted and will create that user, so it is a development convenience,
 not an authentication mechanism. Anyone who can reach the dev server can sign in
-as anyone. Leave it unset in any deployed environment.
+as anyone. Leave it unset in any deployed environment. `npm run dev` listens on
+`127.0.0.1` only for this reason; don't expose it with `-H 0.0.0.0` while dev
+login is on.
 
 If neither provider is configured, `/login` explains which variables are missing
 instead of failing.
@@ -183,7 +198,7 @@ Google users join them.
 ### 5. Run it
 
 ```bash
-npm run dev          # http://localhost:3000
+npm run dev          # http://localhost:3000 (this machine only)
 ```
 
 ## Commands

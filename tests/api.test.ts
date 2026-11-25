@@ -1391,3 +1391,55 @@ describe("users page", () => {
     );
   });
 });
+
+describe("security hardening", () => {
+  it("lists users with only their public fields", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const client = createClient();
+    await signInAs(client, "E2E Users Fields", "VIEWER");
+    const response = await client.request("/api/users");
+    assert.equal(response.status, 200);
+    const { users } = (await response.json()) as { users: Record<string, unknown>[] };
+    assert.ok(users.length > 0);
+    for (const user of users) {
+      assert.deepEqual(
+        Object.keys(user).sort(),
+        ["color", "email", "id", "image", "name", "role"],
+        String(user.id),
+      );
+    }
+  });
+
+  it("doesn't run the image optimizer", async (t) => {
+    if (!reachable) return t.skip("no server");
+    for (const url of ["/favicon.ico", "/next.svg"]) {
+      const response = await fetch(
+        `${BASE}/_next/image?url=${encodeURIComponent(url)}&w=64&q=75`,
+        { redirect: "manual" },
+      );
+      assert.notEqual(response.status, 200, url);
+    }
+  });
+
+  it("doesn't serve the unused template SVGs", async (t) => {
+    if (!reachable) return t.skip("no server");
+    for (const file of ["file", "globe", "next", "vercel", "window"]) {
+      const response = await fetch(`${BASE}/${file}.svg`, { redirect: "manual" });
+      assert.notEqual(response.status, 200, `${file}.svg`);
+    }
+  });
+
+  it("sends security headers and no X-Powered-By", async (t) => {
+    if (!reachable) return t.skip("no server");
+    for (const path of ["/login", "/api/auth/session"]) {
+      const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
+      const header = (name: string) => response.headers.get(name);
+      assert.equal(header("x-powered-by"), null, path);
+      assert.equal(header("x-frame-options"), "DENY", path);
+      assert.equal(header("content-security-policy"), "frame-ancestors 'none'", path);
+      assert.equal(header("x-content-type-options"), "nosniff", path);
+      assert.equal(header("referrer-policy"), "strict-origin-when-cross-origin", path);
+      assert.match(header("permissions-policy") ?? "", /camera=\(\)/, path);
+    }
+  });
+});
