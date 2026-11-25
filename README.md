@@ -186,6 +186,57 @@ Google users join them.
 npm run dev          # http://localhost:3000
 ```
 
+## Use Jiji from Claude (MCP)
+
+Jiji has a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at
+`/api/mcp`, so Claude can search, read and change issues for you.
+
+1. Open **API tokens** in the header and create a token. Pick when it expires:
+   7, 30, 90 or 365 days. Every token expires; when one does, create a new one.
+   The full token is shown **once**, so copy it then.
+2. Add Jiji to Claude Code (the page shows this line with your token filled in):
+
+   ```bash
+   claude mcp add --transport http jiji http://localhost:3000/api/mcp --header "Authorization: Bearer jiji_..."
+   ```
+
+3. For Claude Desktop, add it to `claude_desktop_config.json` through the
+   `mcp-remote` bridge, keeping the token in an environment variable:
+
+   ```json
+   {
+     "mcpServers": {
+       "jiji": {
+         "command": "npx",
+         "args": ["mcp-remote", "http://localhost:3000/api/mcp",
+                  "--header", "Authorization: Bearer ${JIJI_TOKEN}"],
+         "env": { "JIJI_TOKEN": "jiji_..." }
+       }
+     }
+   }
+   ```
+
+Claude acts as you, with your current role, so a Viewer's token can only read.
+The tools:
+
+| Tool | What it does |
+| --- | --- |
+| `whoami` | Who the token belongs to, and their role |
+| `list_dashboards`, `list_users` | Dashboards (with issue counts) and people (with roles) |
+| `search_issues` | Filter by dashboard, status, priority, assignee (`me`, `none` or an id) and text; newest first |
+| `get_issue` | One issue, by key (`JIJI-12`) or id |
+| `create_issue`, `update_issue` | Create an issue as you, or change its fields. Status isn't one of them |
+| `transition_issue` | Move an issue one workflow step |
+| `delete_issue` | Delete an issue (Members: only ones they reported) |
+
+A refused action comes back as a message Claude can act on, such as
+`Forbidden: Viewers can't edit issues`.
+
+Tokens are stored only as SHA-256 hashes and work **only** at `/api/mcp`: the
+rest of the API still needs a browser session. A missing, unknown, revoked or
+expired token gets `401` with `WWW-Authenticate: Bearer`. Treat a token like a
+password: never commit it, and revoke it on the API tokens page if it leaks.
+
 ## Commands
 
 | Command | Description |
@@ -264,6 +315,10 @@ validated.
 | `POST` | `/api/issues/:id/transition` | Workflow-guarded status change; `409` if the move is illegal |
 | `GET` | `/api/users` | Every user, with their `role` |
 | `PATCH` | `/api/users/:id` | `{ "role": "ADMIN" \| "MEMBER" \| "VIEWER" }`. Admins only; `409` when it would leave no Admin |
+| `GET` | `/api/tokens` | Your API tokens (never the token itself) |
+| `POST` | `/api/tokens` | `{ "name": "...", "expiresInDays": 7 \| 30 \| 90 \| 365 }` (default 30). Returns the token once |
+| `DELETE` | `/api/tokens/:id` | Revoke one of your tokens; `404` for anyone else's |
+| `POST` | `/api/mcp` | MCP endpoint (Streamable HTTP, stateless). `Authorization: Bearer jiji_...` only |
 | `*` | `/api/auth/*` | Auth.js endpoints |
 
 Validation failures return `400` with a `fields` map of `{ field: "message" }`.

@@ -103,3 +103,22 @@ export function fieldErrors(error: z.ZodError): Record<string, string> {
 export const userRolePatchSchema = z.object({
   role: z.enum(Role, "Role must be ADMIN, MEMBER or VIEWER"),
 });
+
+/**
+ * POST /api/tokens body. Every token expires: the choices are fixed so nobody
+ * ends up with a token that lives for years by accident, and there is no
+ * "never". A missing value means the default; `null` is rejected.
+ */
+export const apiTokenCreateSchema = z.object({
+  name: z
+    .string("Name is required")
+    .trim()
+    .min(1, "Name is required")
+    .max(80, "Name must be 80 characters or fewer"),
+  expiresInDays: z
+    .union(
+      [z.literal(7), z.literal(30), z.literal(90), z.literal(365)],
+      "Expiry must be 7, 30, 90 or 365 days",
+    )
+    .default(30),
+});

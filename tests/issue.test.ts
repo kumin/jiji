@@ -11,6 +11,7 @@ import {
   TRANSITIONS,
   canTransition,
   issueKey,
+  parseIssueRef,
 } from "@/lib/issue";
 
 const ALL_STATUSES = Object.values(IssueStatus);
@@ -107,5 +108,20 @@ describe("issueKey", () => {
     assert.equal(issueKey(1), "JIJI-1");
     assert.equal(issueKey(42), "JIJI-42");
     assert.equal(issueKey(1234), "JIJI-1234");
+  });
+});
+
+describe("parseIssueRef", () => {
+  it("reads a JIJI-n key, ignoring case and surrounding spaces", () => {
+    assert.deepEqual(parseIssueRef("JIJI-12"), { number: 12 });
+    assert.deepEqual(parseIssueRef("jiji-12"), { number: 12 });
+    assert.deepEqual(parseIssueRef(" JIJI-12 "), { number: 12 });
+  });
+
+  it("treats anything else as an id", () => {
+    assert.deepEqual(parseIssueRef("JIJI-0"), { id: "JIJI-0" });
+    assert.deepEqual(parseIssueRef("JIJI-"), { id: "JIJI-" });
+    assert.deepEqual(parseIssueRef("JIJI-1x"), { id: "JIJI-1x" });
+    assert.deepEqual(parseIssueRef(" cmabc123 "), { id: "cmabc123" });
   });
 });

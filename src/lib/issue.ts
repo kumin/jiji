@@ -88,3 +88,15 @@ export function canTransition(from: IssueStatus, to: IssueStatus): boolean {
 export function issueKey(number: number): string {
   return `${ISSUE_KEY_PREFIX}-${number}`;
 }
+
+/**
+ * How a caller (the MCP tools) names an issue: its key, case-insensitively
+ * (`JIJI-12`, `jiji-12`), or its id. Anything that isn't a well-formed key with
+ * a positive number is taken as an id.
+ */
+export function parseIssueRef(ref: string): { number: number } | { id: string } {
+  const trimmed = ref.trim();
+  const match = new RegExp(`^${ISSUE_KEY_PREFIX}-(\\d+)$`, "i").exec(trimmed);
+  const number = match ? Number(match[1]) : 0;
+  return number > 0 ? { number } : { id: trimmed };
+}

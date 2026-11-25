@@ -1391,3 +1391,679 @@ describe("users page", () => {
     );
   });
 });
+
+type ApiTokenJson = {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};
+
+/** Create a token through the API as `client` and return the full token. */
+async function createToken(client: Client, body: Record<string, unknown> = { name: "e2e" }) {
+  const response = await client.request("/api/tokens", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.status, 201);
+  const json = (await response.json()) as { apiToken: ApiTokenJson; token: string };
+  return json;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function assertAbout(actual: string, expectedMs: number, label: string) {
+  const delta = Math.abs(new Date(actual).getTime() - expectedMs);
+  assert.ok(delta < 60_000, `${label}: ${actual} is ${delta}ms off`);
+}
+
+describe("api tokens", () => {
+  const owner = createClient();
+  const other = createClient();
+
+  before(async () => {
+    if (!canAuth()) return;
+    await signInAs(owner, "E2E Token Owner", "VIEWER");
+    await signInAs(other, "E2E Token Other", "MEMBER");
+  });
+
+  it("creates a token that expires in 30 days by default and stores only its hash", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: " cli " });
+    assert.match(token, /^jiji_[A-Za-z0-9_-]{43}$/);
+    assert.equal(apiToken.name, "cli");
+    assert.equal(apiToken.prefix, token.slice(0, 9));
+    assert.equal(apiToken.lastUsedAt, null);
+    assertAbout(apiToken.expiresAt, Date.now() + 30 * DAY_MS, "default expiry");
+
+    const { prisma } = await import("@/lib/prisma");
+    const { createHash } = await import("node:crypto");
+    const row = await prisma.apiToken.findUniqueOrThrow({ where: { id: apiToken.id } });
+    assert.equal(row.tokenHash, createHash("sha256").update(token).digest("hex"));
+    assert.ok(!Object.values(row).includes(token), "the token itself is never stored");
+  });
+
+  it("honours a chosen expiry", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken } = await createToken(owner, { name: "week", expiresInDays: 7 });
+    assertAbout(apiToken.expiresAt, Date.now() + 7 * DAY_MS, "7-day expiry");
+  });
+
+  it("lists your own tokens without the token itself", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken } = await createToken(owner, { name: "listed" });
+    const response = await owner.request("/api/tokens");
+    assert.equal(response.status, 200);
+    const { apiTokens } = (await response.json()) as { apiTokens: ApiTokenJson[] };
+    const listed = apiTokens.find((entry) => entry.id === apiToken.id);
+    assert.deepEqual(listed, apiToken);
+    assert.ok(apiTokens.every((entry) => !("token" in entry)));
+
+    const others = (await (await other.request("/api/tokens")).json()) as {
+      apiTokens: ApiTokenJson[];
+    };
+    assert.ok(!others.apiTokens.some((entry) => entry.id === apiToken.id), "not in B's list");
+  });
+
+  it("validates the name and the expiry", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [body, field] of [
+      [{ name: "" }, "name"],
+      [{ name: "a".repeat(81) }, "name"],
+      [{ name: "a", expiresInDays: 0 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: 14 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: 3650 }, "expiresInDays"],
+      [{ name: "a", expiresInDays: null }, "expiresInDays"],
+    ] as const) {
+      const response = await owner.request("/api/tokens", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400, JSON.stringify(body));
+      const json = await response.json();
+      assert.ok(json.fields?.[field], `${JSON.stringify(body)} → fields.${field}`);
+    }
+  });
+
+  it("only lets the owner revoke a token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "revoke me" });
+    const { prisma } = await import("@/lib/prisma");
+
+    const foreign = await other.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(foreign.status, 404);
+    assert.ok(await prisma.apiToken.findUnique({ where: { id: apiToken.id } }), "still there");
+    const stillWorks = await rawInitialize({ authorization: `Bearer ${token}` });
+    assert.equal(stillWorks.status, 200, "the token still works after B's attempt");
+
+    const own = await owner.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(own.status, 204);
+    assert.equal(await prisma.apiToken.findUnique({ where: { id: apiToken.id } }), null);
+
+    const unknown = await owner.request("/api/tokens/does-not-exist", { method: "DELETE" });
+    assert.equal(unknown.status, 404);
+  });
+
+  it("refuses a session whose user no longer exists", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const ghost = createClient();
+    const ghostId = await signInAs(ghost, "E2E Token Ghost", "MEMBER");
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.user.delete({ where: { id: ghostId } });
+    const response = await ghost.request("/api/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name: "ghost" }),
+    });
+    assert.equal(response.status, 401);
+  });
+
+  it("refuses anonymous callers", async (t) => {
+    if (!reachable) return t.skip("no server");
+    for (const [method, path] of [
+      ["GET", "/api/tokens"],
+      ["POST", "/api/tokens"],
+      ["DELETE", "/api/tokens/whatever"],
+    ] as const) {
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: method === "POST" ? JSON.stringify({ name: "x" }) : undefined,
+        redirect: "manual",
+      });
+      assert.equal(response.status, 401, `${method} ${path}`);
+    }
+  });
+});
+
+type ToolCall = { isError: boolean; data: unknown; text: string };
+
+/**
+ * An MCP client connected to the server with `token`, over the same Streamable
+ * HTTP transport Claude Code uses. `call` returns the tool's JSON (or raw text
+ * when it isn't JSON) and whether it was an error result.
+ */
+async function mcp(token: string) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import(
+    "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  );
+  const client = new Client({ name: "jiji-tests", version: "0.0.0" });
+  const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  await client.connect(transport);
+  openMcpClients.push(client);
+
+  async function call(name: string, args: Record<string, unknown> = {}): Promise<ToolCall> {
+    const result = await client.callTool({ name, arguments: args });
+    const content = result.content as Array<{ type: string; text?: string }>;
+    const text = content.map((part) => part.text ?? "").join("");
+    let data: unknown = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Not JSON: error results are plain messages.
+    }
+    return { isError: Boolean(result.isError), data, text };
+  }
+
+  return { client, call };
+}
+
+const openMcpClients: Array<{ close(): Promise<void> }> = [];
+after(async () => {
+  await Promise.all(openMcpClients.map((client) => client.close().catch(() => {})));
+});
+
+/** A raw JSON-RPC `initialize`, for checking what the endpoint does before any MCP happens. */
+function rawInitialize(headers: Record<string, string> = {}) {
+  return fetch(`${BASE}/api/mcp`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...headers,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "raw", version: "0" },
+      },
+    }),
+  });
+}
+
+async function assertMcpUnauthorized(response: Response, label: string) {
+  assert.equal(response.status, 401, label);
+  assert.equal(response.headers.get("www-authenticate"), "Bearer", label);
+  assert.deepEqual(await response.json(), { error: "Unauthorized" }, label);
+}
+
+describe("mcp auth", () => {
+  const owner = createClient();
+  let ownerId = "";
+
+  before(async () => {
+    if (!canAuth()) return;
+    ownerId = await signInAs(owner, "E2E MCP Owner", "MEMBER");
+  });
+
+  it("refuses requests without a usable token", async (t) => {
+    if (!reachable) return t.skip("no server");
+    await assertMcpUnauthorized(await rawInitialize(), "no header");
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: "Basic abc" }),
+      "Basic scheme",
+    );
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: "Bearer jiji_unknown" }),
+      "unknown token",
+    );
+  });
+
+  it("refuses a session cookie on its own", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const response = await owner.request("/api/mcp", {
+      method: "POST",
+      headers: { accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    await assertMcpUnauthorized(response, "cookie only");
+  });
+
+  it("refuses an expired token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "expired" });
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.apiToken.update({
+      where: { id: apiToken.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: `Bearer ${token}` }),
+      "expired token",
+    );
+  });
+
+  it("refuses a revoked token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "revoked" });
+    const before = await rawInitialize({ authorization: `Bearer ${token}` });
+    assert.equal(before.status, 200, "works before revoking");
+    const revoke = await owner.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
+    assert.equal(revoke.status, 204);
+    await assertMcpUnauthorized(
+      await rawInitialize({ authorization: `Bearer ${token}` }),
+      "revoked token",
+    );
+  });
+
+  it("connects with a valid token and says who you are", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { apiToken, token } = await createToken(owner, { name: "whoami" });
+    const { call } = await mcp(token);
+    const me = await call("whoami");
+    assert.equal(me.isError, false, me.text);
+    const { prisma } = await import("@/lib/prisma");
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: ownerId } });
+    assert.deepEqual(me.data, { id: ownerId, name: user.name, email: user.email, role: "MEMBER" });
+
+    const row = await prisma.apiToken.findUniqueOrThrow({ where: { id: apiToken.id } });
+    assert.ok(row.lastUsedAt, "lastUsedAt is set");
+  });
+
+  it("answers GET and DELETE with 405, after checking the token", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { token } = await createToken(owner, { name: "methods" });
+    for (const method of ["GET", "DELETE"]) {
+      const anonymous = await fetch(`${BASE}/api/mcp`, { method, redirect: "manual" });
+      assert.equal(anonymous.status, 401, `${method} without a token`);
+      const response = await fetch(`${BASE}/api/mcp`, {
+        method,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(response.status, 405, method);
+      assert.equal(response.headers.get("allow"), "POST", method);
+    }
+  });
+
+  it("doesn't accept a token anywhere but /api/mcp", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { token } = await createToken(owner, { name: "rest" });
+    const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    const list = await fetch(`${BASE}/api/issues`, { headers, redirect: "manual" });
+    assert.equal(list.status, 401, "GET /api/issues");
+    const mint = await fetch(`${BASE}/api/tokens`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "x" }),
+      redirect: "manual",
+    });
+    assert.equal(mint.status, 401, "POST /api/tokens");
+  });
+});
+
+type IssueSummaryJson = {
+  key: string;
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  assignee: string | null;
+  dashboard: string;
+  dueDate: string | null;
+  updatedAt: string;
+};
+
+describe("mcp read tools", () => {
+  const viewer = createClient();
+  const member = createClient();
+  let viewerId = "";
+  let tools: Awaited<ReturnType<typeof mcp>>;
+  const issueIds: string[] = [];
+  const word = `mcpread${process.pid}`;
+
+  before(async () => {
+    if (!canAuth()) return;
+    viewerId = await signInAs(viewer, "E2E MCP Viewer", "VIEWER");
+    await signInAs(member, "E2E MCP Member", "MEMBER");
+    tools = await mcp((await createToken(viewer)).token);
+
+    for (const body of [
+      { title: `${word} assigned`, priority: "HIGH", assigneeId: viewerId },
+      { title: `${word} unassigned`, priority: "LOW" },
+      { title: `${word} third`, priority: "LOW" },
+    ]) {
+      const response = await member.request("/api/issues", {
+        method: "POST",
+        body: JSON.stringify({ ...body, dashboardId: testDashboardId }),
+      });
+      assert.equal(response.status, 201);
+      const { issue } = await response.json();
+      issueIds.push(issue.id);
+      created.push(issue.id);
+    }
+    // Move the third one along so the status filter has something to find.
+    await member.request(`/api/issues/${issueIds[2]}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ status: "IN_PROGRESS" }),
+    });
+  });
+
+  it("lists dashboards and users", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const dashboards = await tools.call("list_dashboards");
+    assert.equal(dashboards.isError, false, dashboards.text);
+    const mine = (dashboards.data as Array<{ id: string; issueCount: number }>).find(
+      (dashboard) => dashboard.id === testDashboardId,
+    );
+    assert.ok(mine, "the test dashboard is listed");
+    assert.ok(mine.issueCount >= 3);
+    assert.deepEqual(Object.keys(mine).sort(), ["description", "id", "issueCount", "name"]);
+
+    const users = await tools.call("list_users");
+    const me = (users.data as Array<{ id: string; role: string }>).find((u) => u.id === viewerId);
+    assert.ok(me);
+    assert.equal(me.role, "VIEWER");
+    assert.deepEqual(Object.keys(me).sort(), ["email", "id", "name", "role"]);
+  });
+
+  it("searches issues with each filter", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const search = async (args: Record<string, unknown>) => {
+      const result = await tools.call("search_issues", { dashboardId: testDashboardId, ...args });
+      assert.equal(result.isError, false, result.text);
+      return result.data as { total: number; issues: IssueSummaryJson[] };
+    };
+    const titles = (result: { issues: IssueSummaryJson[] }) =>
+      result.issues.map((issue) => issue.title).sort();
+
+    assert.deepEqual(titles(await search({ q: word })), [
+      `${word} assigned`,
+      `${word} third`,
+      `${word} unassigned`,
+    ]);
+    assert.deepEqual(titles(await search({ q: word, priority: "HIGH" })), [`${word} assigned`]);
+    assert.deepEqual(titles(await search({ q: word, status: "IN_PROGRESS" })), [`${word} third`]);
+    assert.deepEqual(titles(await search({ q: word, assignee: "me" })), [`${word} assigned`]);
+    assert.deepEqual(titles(await search({ q: word, assignee: "none" })), [
+      `${word} third`,
+      `${word} unassigned`,
+    ]);
+
+    const limited = await search({ q: word, limit: 1 });
+    assert.equal(limited.issues.length, 1);
+    assert.equal(limited.total, 3);
+    assert.deepEqual(Object.keys(limited.issues[0]!).sort(), [
+      "assignee",
+      "dashboard",
+      "dueDate",
+      "id",
+      "key",
+      "priority",
+      "status",
+      "title",
+      "updatedAt",
+    ]);
+  });
+
+  it("gets an issue by key or by id", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const byId = await tools.call("get_issue", { issue: issueIds[0] });
+    assert.equal(byId.isError, false, byId.text);
+    const issue = byId.data as { id: string; key: string; title: string };
+    assert.equal(issue.id, issueIds[0]);
+
+    const byKey = await tools.call("get_issue", { issue: issue.key.toLowerCase() });
+    assert.deepEqual(byKey.data, byId.data);
+
+    const missing = await tools.call("get_issue", { issue: "JIJI-999999" });
+    assert.equal(missing.isError, true);
+    assert.equal(missing.text, "Issue JIJI-999999 not found");
+  });
+});
+
+describe("api tokens page", () => {
+  it("lists your tokens with their expiry, never the token itself", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const viewer = createClient();
+    await signInAs(viewer, "E2E Tokens Page", "VIEWER");
+    const live = await createToken(viewer, { name: "e2e live token" });
+    const old = await createToken(viewer, { name: "e2e old token" });
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.apiToken.update({
+      where: { id: old.apiToken.id },
+      data: { expiresAt: new Date(Date.now() - DAY_MS) },
+    });
+
+    const response = await viewer.request("/settings/tokens");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.ok(html.includes("e2e live token") && html.includes(live.apiToken.prefix));
+    assert.ok(html.includes("e2e old token"));
+    assert.match(html, />Expired</, "the expired token is marked");
+    assert.ok(!html.includes(live.token) && !html.includes(old.token), "no full tokens");
+  });
+
+  it("links to the page from the user menu for every role", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const role of ["VIEWER", "MEMBER", "ADMIN"] as const) {
+      const client = createClient();
+      await signInAs(client, `E2E Menu ${role}`, role);
+      const html = await (await client.request("/dashboards")).text();
+      assert.match(html, /href="\/settings\/tokens"/, role);
+    }
+  });
+
+  it("sends anonymous visitors to the login page", async (t) => {
+    if (!reachable) return t.skip("no server");
+    const response = await fetch(`${BASE}/settings/tokens`, { redirect: "manual" });
+    assert.equal(response.status, 307);
+    assert.match(response.headers.get("location") ?? "", /\/login/);
+  });
+});
+
+// Registered last so it runs after every other cleanup: an open Prisma pool
+// connection would otherwise keep the test process alive for minutes.
+after(async () => {
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.$disconnect();
+});
+
+describe("mcp write tools", () => {
+  const member = createClient();
+  const otherMember = createClient();
+  const viewer = createClient();
+  const admin = createClient();
+  let memberId = "";
+  let asMember: Awaited<ReturnType<typeof mcp>>;
+  let asViewer: Awaited<ReturnType<typeof mcp>>;
+  let asAdmin: Awaited<ReturnType<typeof mcp>>;
+
+  type IssueJson = { id: string; key: string; title: string; status: string; priority: string };
+
+  async function createViaMcp(title: string, extra: Record<string, unknown> = {}) {
+    const result = await asMember.call("create_issue", {
+      dashboardId: testDashboardId,
+      title,
+      ...extra,
+    });
+    assert.equal(result.isError, false, result.text);
+    const issue = result.data as IssueJson;
+    created.push(issue.id);
+    return issue;
+  }
+
+  /** An issue reported by `otherMember`, made through REST. */
+  async function someoneElsesIssue(title: string) {
+    const response = await otherMember.request("/api/issues", {
+      method: "POST",
+      body: JSON.stringify({ title, dashboardId: testDashboardId }),
+    });
+    assert.equal(response.status, 201);
+    const { issue } = await response.json();
+    created.push(issue.id);
+    return issue as IssueJson;
+  }
+
+  async function restIssue(id: string) {
+    const response = await member.request(`/api/issues/${id}`);
+    return response.status === 404 ? null : ((await response.json()).issue as IssueJson);
+  }
+
+  before(async () => {
+    if (!canAuth()) return;
+    memberId = await signInAs(member, "E2E MCP Writer", "MEMBER");
+    await signInAs(otherMember, "E2E MCP Other", "MEMBER");
+    await signInAs(viewer, "E2E MCP Read Only", "VIEWER");
+    await signInAs(admin, "E2E MCP Admin", "ADMIN");
+    asMember = await mcp((await createToken(member)).token);
+    asViewer = await mcp((await createToken(viewer)).token);
+    asAdmin = await mcp((await createToken(admin)).token);
+  });
+
+  it("lists exactly the nine tools, with hints and no status on update_issue", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const { tools } = await asMember.client.listTools();
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), [
+      "create_issue",
+      "delete_issue",
+      "get_issue",
+      "list_dashboards",
+      "list_users",
+      "search_issues",
+      "transition_issue",
+      "update_issue",
+      "whoami",
+    ]);
+    const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+    for (const name of ["whoami", "list_dashboards", "list_users", "search_issues", "get_issue"]) {
+      assert.equal(byName[name]!.annotations?.readOnlyHint, true, name);
+    }
+    assert.equal(byName.delete_issue!.annotations?.destructiveHint, true);
+    const updateProps = Object.keys(byName.update_issue!.inputSchema.properties ?? {});
+    assert.ok(!updateProps.includes("status"), "update_issue has no status");
+  });
+
+  it("lets a Member create, update and transition issues", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP created");
+    const full = (await asMember.call("get_issue", { issue: issue.key })).data as {
+      reporter: { id: string };
+    };
+    assert.equal(full.reporter.id, memberId, "the token owner is the reporter");
+
+    const updated = await asMember.call("update_issue", {
+      issue: issue.key,
+      title: "E2E MCP renamed",
+      priority: "HIGHEST",
+    });
+    assert.equal(updated.isError, false, updated.text);
+    assert.equal((updated.data as IssueJson).title, "E2E MCP renamed");
+    assert.equal((updated.data as IssueJson).priority, "HIGHEST");
+
+    const empty = await asMember.call("update_issue", { issue: issue.key });
+    assert.equal(empty.isError, true);
+    assert.match(empty.text, /Provide at least one field to update/);
+
+    const moved = await asMember.call("transition_issue", {
+      issue: issue.id,
+      status: "IN_PROGRESS",
+    });
+    assert.equal(moved.isError, false, moved.text);
+    assert.equal((moved.data as IssueJson).status, "IN_PROGRESS");
+  });
+
+  it("refuses to skip workflow steps", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP workflow");
+    const result = await asMember.call("transition_issue", { issue: issue.key, status: "DONE" });
+    assert.equal(result.isError, true);
+    assert.equal(result.text, "To Do cannot move straight to Done (allowed: IN_PROGRESS)");
+    assert.equal((await restIssue(issue.id))!.status, "TODO");
+  });
+
+  it("gives the REST API's validation messages", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    for (const [args, pattern] of [
+      [{ title: "" }, /Validation failed: title: Title is required/],
+      [{ title: "x", dashboardId: "nope" }, /Dashboard not found/i],
+      [{ title: "x", assigneeId: "nobody" }, /Validation failed: assigneeId: /],
+      [{ title: "x", dueDate: "tomorrow" }, /Validation failed: dueDate: Expected YYYY-MM-DD/],
+    ] as const) {
+      const result = await asMember.call("create_issue", { dashboardId: testDashboardId, ...args });
+      assert.equal(result.isError, true, JSON.stringify(args));
+      assert.match(result.text, pattern, JSON.stringify(args));
+    }
+  });
+
+  it("refuses every write from a Viewer", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const issue = await createViaMcp("E2E MCP viewer target");
+    for (const [name, args, reason] of [
+      ["create_issue", { dashboardId: testDashboardId, title: "nope" }, "Viewers can't create issues"],
+      ["update_issue", { issue: issue.key, title: "nope" }, "Viewers can't edit issues"],
+      ["transition_issue", { issue: issue.key, status: "IN_PROGRESS" }, "Viewers can't edit issues"],
+      ["delete_issue", { issue: issue.key }, "Viewers can't edit issues"],
+    ] as const) {
+      const result = await asViewer.call(name, args);
+      assert.equal(result.isError, true, name);
+      assert.equal(result.text, `Forbidden: ${reason}`, name);
+    }
+    const after = await restIssue(issue.id);
+    assert.equal(after?.title, "E2E MCP viewer target");
+    assert.equal(after?.status, "TODO");
+  });
+
+  it("lets Members delete only issues they reported, and Admins any", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const own = await createViaMcp("E2E MCP mine");
+    const deleted = await asMember.call("delete_issue", { issue: own.key });
+    assert.equal(deleted.isError, false, deleted.text);
+    assert.deepEqual(deleted.data, { deleted: own.key });
+    assert.equal(await restIssue(own.id), null);
+
+    const theirs = await someoneElsesIssue("E2E MCP theirs");
+    const refused = await asMember.call("delete_issue", { issue: theirs.key });
+    assert.equal(refused.isError, true);
+    assert.equal(refused.text, "Forbidden: Members can only delete issues they reported");
+    assert.ok(await restIssue(theirs.id), "still there");
+
+    const byAdmin = await asAdmin.call("delete_issue", { issue: theirs.id });
+    assert.equal(byAdmin.isError, false, byAdmin.text);
+    assert.equal(await restIssue(theirs.id), null);
+
+    const missing = await asMember.call("delete_issue", { issue: "JIJI-999999" });
+    assert.equal(missing.text, "Issue JIJI-999999 not found");
+  });
+
+  it("applies a role change to an existing token on its next call", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const demoted = createClient();
+    const demotedId = await signInAs(demoted, "E2E MCP Demoted", "MEMBER");
+    const tools = await mcp((await createToken(demoted)).token);
+    const made = await tools.call("create_issue", { dashboardId: testDashboardId, title: "E2E MCP before demotion" });
+    assert.equal(made.isError, false, made.text);
+    created.push((made.data as IssueJson).id);
+
+    const response = await admin.request(`/api/users/${demotedId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "VIEWER" }),
+    });
+    assert.equal(response.status, 200);
+
+    const after = await tools.call("update_issue", {
+      issue: (made.data as IssueJson).key,
+      title: "nope",
+    });
+    assert.equal(after.isError, true);
+    assert.equal(after.text, "Forbidden: Viewers can't edit issues");
+  });
+});

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { toUserDTO } from "@/lib/issue-service";
 import { prisma } from "@/lib/prisma";
+import { isWriteConflict } from "@/lib/prisma-errors";
 import { authorize } from "@/lib/require-user";
 import { fieldErrors, userRolePatchSchema } from "@/lib/validation";
 
@@ -31,7 +32,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   try {
     // Serializable, so two Admins demoting each other at once can't both pass
-    // the count and leave nobody in charge; the loser gets P2034 (below).
+    // the count and leave nobody in charge; the loser gets a write conflict (below).
     const user = await prisma.$transaction(
       async (tx) => {
         const target = await tx.user.findUnique({ where: { id }, select: { role: true } });
@@ -53,7 +54,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     }
     // A concurrent change won the race. Nothing was saved, and a retry will see
     // the new state (and get the last-Admin 409 if that is what it means).
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+    if (isWriteConflict(error)) {
       return NextResponse.json(CONFLICT_RESPONSE, { status: 409 });
     }
     throw error;

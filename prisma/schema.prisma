@@ -53,6 +53,26 @@ model User {
 
   assignedIssues Issue[] @relation("IssueAssignee")
   reportedIssues Issue[] @relation("IssueReporter")
+
+  apiTokens ApiToken[]
+}
+
+/// A personal access token for the MCP endpoint. Only a SHA-256 hash of the
+/// token is stored; the token itself is shown once, when it is created.
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  tokenHash  String    @unique
+  /// The first 9 characters, e.g. "jiji_Ab3x", so the owner can recognise it.
+  prefix     String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  /// Every token expires; there is no "never".
+  expiresAt  DateTime
+
+  @@index([userId])
 }
 
 model Issue {
