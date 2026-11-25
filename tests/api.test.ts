@@ -1393,6 +1393,23 @@ describe("users page", () => {
 });
 
 describe("security hardening", () => {
+  it("lists users with only their public fields", async (t) => {
+    if (!canAuth()) return t.skip("no dev-login provider");
+    const client = createClient();
+    await signInAs(client, "E2E Users Fields", "VIEWER");
+    const response = await client.request("/api/users");
+    assert.equal(response.status, 200);
+    const { users } = (await response.json()) as { users: Record<string, unknown>[] };
+    assert.ok(users.length > 0);
+    for (const user of users) {
+      assert.deepEqual(
+        Object.keys(user).sort(),
+        ["color", "email", "id", "image", "name", "role"],
+        String(user.id),
+      );
+    }
+  });
+
   it("doesn't run the image optimizer", async (t) => {
     if (!reachable) return t.skip("no server");
     for (const url of ["/favicon.ico", "/next.svg"]) {
