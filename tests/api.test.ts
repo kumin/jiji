@@ -1489,12 +1489,14 @@ describe("api tokens", () => {
 
   it("only lets the owner revoke a token", async (t) => {
     if (!canAuth()) return t.skip("no dev-login provider");
-    const { apiToken } = await createToken(owner, { name: "revoke me" });
+    const { apiToken, token } = await createToken(owner, { name: "revoke me" });
     const { prisma } = await import("@/lib/prisma");
 
     const foreign = await other.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
     assert.equal(foreign.status, 404);
     assert.ok(await prisma.apiToken.findUnique({ where: { id: apiToken.id } }), "still there");
+    const stillWorks = await rawInitialize({ authorization: `Bearer ${token}` });
+    assert.equal(stillWorks.status, 200, "the token still works after B's attempt");
 
     const own = await owner.request(`/api/tokens/${apiToken.id}`, { method: "DELETE" });
     assert.equal(own.status, 204);

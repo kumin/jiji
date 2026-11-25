@@ -36,7 +36,7 @@ Claude (Claude Code, Claude Desktop) can't work with Jiji. To find, file or move
   - It has a form to create a token, with a name and an expiry choice (7, 30, 90 or 365 days; default 30). The full token is shown once, with copy instructions.
   - Each token has a Revoke button.
   - Every role can create tokens. A Viewer's token is effectively read-only.
-- **`src/app/api/mcp/route.ts`** (new): `POST` (and `GET` and `DELETE` as the SDK requires).
+- **`src/app/api/mcp/route.ts`** (new): `POST`. `GET` and `DELETE` check the token, then return 405 with `Allow: POST`: without MCP sessions there is no event stream to open or session to end, and an open `GET` stream would hang clients.
   - It authenticates the Bearer token, then builds an MCP server for that actor and handles the request.
   - It uses `@modelcontextprotocol/sdk`'s web-standard Streamable HTTP transport in stateless mode, with a new server and transport per request and JSON responses with no sessions.
 - **`src/lib/mcp/server.ts`** (new): `createJijiServer(actor)` registers the tools below.
